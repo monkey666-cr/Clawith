@@ -427,6 +427,7 @@ async def websocket_chat(
             print(f"[WS] Waiting for message from {agent_name}...")
             data = await websocket.receive_json()
             content = data.get("content", "")
+            display_content = data.get("display_content", "")  # User-facing display text
             print(f"[WS] Received: {content[:50]}")
 
             if not content:
@@ -448,16 +449,17 @@ async def websocket_chat(
                 await websocket.send_json({"type": "done", "role": "assistant", "content": f"⚠️ {ae.message}"})
                 continue
 
-            # Add user message to conversation
+            # Add user message to conversation (full LLM context)
             conversation.append({"role": "user", "content": content})
 
-            # Save user message
+            # Save user message — display_content for history display, content for LLM
+            saved_content = display_content if display_content else content
             async with async_session() as db:
                 user_msg = ChatMessage(
                     agent_id=agent_id,
                     user_id=user_id,
                     role="user",
-                    content=content,
+                    content=saved_content,
                     conversation_id=conv_id,
                 )
                 db.add(user_msg)

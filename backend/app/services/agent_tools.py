@@ -775,28 +775,18 @@ async def _read_webpage(arguments: dict) -> str:
             except (LookupError, UnicodeDecodeError):
                 html = resp.content.decode('utf-8', errors='replace')
 
-        # Remove scripts, styles, nav elements
-        html = re.sub(r'<(script|style|nav|header|footer|aside)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        # Extract main content: try multiple common selectors
-        extracted = None
-        for pattern in [
-            r'<(article)[^>]*>(.*?)</\1>',
-            r'<(main)[^>]*>(.*?)</\1>',
-            r'<div[^>]+class="[^"]*(?:TRS_Content|article[-_]?content|content[-_]?body|news[-_]?content|detail[-_]?content|main[-_]?content|post[-_]?content)[^"]*"[^>]*>(.*?)</div>',
-            r'<div[^>]+id="[^"]*(?:content|article|main|detail)[^"]*"[^>]*>(.*?)</div>',
-        ]:
-            m = re.search(pattern, html, re.DOTALL | re.IGNORECASE)
-            if m:
-                extracted = m.group(m.lastindex)
-                break
-        html = extracted if extracted else html
+        # Remove scripts, styles, nav, footer elements entirely
+        html = re.sub(r'<(script|style|nav|footer|aside)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        # Try to isolate <body> content
+        body_m = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL | re.IGNORECASE)
+        html = body_m.group(1) if body_m else html
 
         # Strip all remaining HTML tags
         text = re.sub(r'<[^>]+>', ' ', html)
         text = unescape(text)
         # Collapse whitespace
+        text = re.sub(r'[ \t]{2,}', ' ', text)
         text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
-        text = re.sub(r'[ \t]{3,}', ' ', text)
         text = text.strip()
 
         if not text or len(text) < 20:

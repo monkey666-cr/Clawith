@@ -554,7 +554,7 @@ export default function AgentDetail() {
             userMsg = userMsg || `⌇ ${attachedFile.name}`;
         }
         setChatMessages(prev => [...prev, { role: 'user', content: userMsg, fileName: attachedFile?.name }]);
-        wsRef.current.send(JSON.stringify({ content: contentForLLM }));
+        wsRef.current.send(JSON.stringify({ content: contentForLLM, display_content: userMsg }));
         setChatInput(''); setAttachedFile(null);
     };
 

@@ -238,7 +238,7 @@ export default function Chat() {
             content: userMsg,
             fileName: attachedFile?.name,
         }]);
-        wsRef.current.send(JSON.stringify({ content: contentForLLM }));
+        wsRef.current.send(JSON.stringify({ content: contentForLLM, display_content: userMsg }));
         setInput('');
         setAttachedFile(null);
     };
