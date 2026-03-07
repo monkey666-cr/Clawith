@@ -1961,11 +1961,21 @@ async def _discover_resources(arguments: dict) -> str:
 
 
 async def _import_mcp_server(agent_id: uuid.UUID, arguments: dict) -> str:
-    """Import an MCP server from Smithery."""
+    """Import an MCP server — either from Smithery or by direct URL."""
+    config = arguments.get("config") or {}
+    mcp_url = config.pop("mcp_url", None) if isinstance(config, dict) else None
+
+    if mcp_url:
+        # Direct URL import — bypass Smithery
+        from app.services.resource_discovery import import_mcp_direct
+        server_name = arguments.get("server_id") or config.pop("server_name", None)
+        api_key = config.pop("api_key", None)
+        return await import_mcp_direct(mcp_url, agent_id, server_name, api_key)
+
+    # Smithery import
     server_id = arguments.get("server_id", "")
     if not server_id:
-        return "❌ Please provide a server_id (e.g. '@anthropic/brave-search'). Use discover_resources first to find available servers."
-    config = arguments.get("config")
+        return "❌ Please provide a server_id (e.g. 'github'). Use discover_resources first to find available servers."
 
     from app.services.resource_discovery import import_mcp_from_smithery
-    return await import_mcp_from_smithery(server_id, agent_id, config)
+    return await import_mcp_from_smithery(server_id, agent_id, config or None)

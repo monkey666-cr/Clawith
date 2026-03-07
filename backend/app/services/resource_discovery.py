@@ -471,3 +471,130 @@ async def import_mcp_from_smithery(
     else:
         result += "\n\n💡 The imported tools are now available for use."
     return result
+
+
+# ── Direct URL Import ───────────────────────────────────────────
+
+async def import_mcp_direct(
+    mcp_url: str,
+    agent_id: uuid.UUID,
+    server_name: str | None = None,
+    api_key: str | None = None,
+) -> str:
+    """Import an MCP server by directly connecting to its HTTP/SSE endpoint.
+
+    This bypasses Smithery entirely — useful for self-hosted or third-party
+    MCP servers that provide their own public endpoint.
+    """
+    from app.services.mcp_client import MCPClient
+
+    # Build URL with apiKey if provided
+    full_url = mcp_url
+    if api_key and "?" in mcp_url:
+        full_url = f"{mcp_url}&apiKey={api_key}"
+    elif api_key:
+        full_url = f"{mcp_url}?apiKey={api_key}"
+
+    display_name = server_name or mcp_url.split("//")[-1].split("/")[0].split(":")[0]
+    safe_name = display_name.replace(".", "_").replace("/", "_").replace(":", "_").replace("-", "_")
+
+    # Try to list tools from the endpoint
+    tools_discovered = []
+    try:
+        client = MCPClient(full_url)
+        tools_discovered = await client.list_tools()
+        print(f"[DirectImport] Got {len(tools_discovered)} tools from {mcp_url}")
+    except Exception as e:
+        print(f"[DirectImport] Could not list tools from {mcp_url}: {e}")
+
+    # Config to store in AgentTool
+    agent_tool_config = {}
+    if api_key:
+        agent_tool_config["api_key"] = api_key
+
+    async with async_session() as db:
+        imported_tools = []
+
+        async def _ensure_agent_tool(tool_id: uuid.UUID):
+            agent_check = await db.execute(
+                select(AgentTool).where(
+                    AgentTool.agent_id == agent_id,
+                    AgentTool.tool_id == tool_id,
+                )
+            )
+            at = agent_check.scalar_one_or_none()
+            if at:
+                at.config = {**(at.config or {}), **agent_tool_config}
+            else:
+                db.add(AgentTool(
+                    agent_id=agent_id, tool_id=tool_id, enabled=True,
+                    source="user_installed", installed_by_agent_id=agent_id,
+                    config=agent_tool_config,
+                ))
+
+        if tools_discovered:
+            for mcp_tool in tools_discovered:
+                tool_name = f"mcp_{safe_name}_{mcp_tool['name']}"
+                tool_display = f"{display_name}: {mcp_tool['name']}"
+
+                existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
+                existing_tool = existing_r.scalar_one_or_none()
+                if existing_tool:
+                    existing_tool.mcp_server_url = mcp_url
+                    await _ensure_agent_tool(existing_tool.id)
+                    imported_tools.append(f"⏭️ {tool_display} (already imported)")
+                    continue
+
+                tool = Tool(
+                    name=tool_name,
+                    display_name=tool_display,
+                    description=mcp_tool.get("description", "")[:500],
+                    type="mcp",
+                    category="mcp",
+                    icon="🔌",
+                    parameters_schema=mcp_tool.get("inputSchema", {"type": "object", "properties": {}}),
+                    mcp_server_url=mcp_url,
+                    mcp_server_name=display_name,
+                    mcp_tool_name=mcp_tool["name"],
+                    enabled=True,
+                    is_default=False,
+                )
+                db.add(tool)
+                await db.flush()
+                await _ensure_agent_tool(tool.id)
+                imported_tools.append(f"✅ {tool_display}")
+        else:
+            tool_name = f"mcp_{safe_name}"
+            existing_r = await db.execute(select(Tool).where(Tool.name == tool_name))
+            existing_tool = existing_r.scalar_one_or_none()
+            if existing_tool:
+                existing_tool.mcp_server_url = mcp_url
+                await _ensure_agent_tool(existing_tool.id)
+                return f"⏭️ {display_name} is already imported."
+
+            tool = Tool(
+                name=tool_name,
+                display_name=display_name,
+                description=f"MCP Server: {mcp_url}",
+                type="mcp",
+                category="mcp",
+                icon="🔌",
+                parameters_schema={"type": "object", "properties": {}},
+                mcp_server_url=mcp_url,
+                mcp_server_name=display_name,
+                enabled=True,
+                is_default=False,
+            )
+            db.add(tool)
+            await db.flush()
+            await _ensure_agent_tool(tool.id)
+            imported_tools.append(f"✅ {display_name} (tools couldn't be listed — server may need configuration)")
+
+        await db.commit()
+
+    result = f"🔌 Imported MCP server: **{display_name}**\n\n"
+    result += "\n".join(imported_tools)
+    result += f"\n\n📡 MCP Server URL: `{mcp_url}`"
+    result += "\n\n💡 The imported tools are now available for use."
+    return result
+
