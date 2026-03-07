@@ -37,4 +37,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 EXPOSE 8000
 # entrypoint.sh runs `alembic upgrade head` then `uvicorn`
-ENTRYPOINT ["sh", "/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
