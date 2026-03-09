@@ -296,6 +296,8 @@ select:focus {
   top: 0;
   left: 0;
   bottom: 0;
+  height: 100vh;
+  max-height: 100vh;
   z-index: 10;
   transition: width var(--transition-default);
   overflow: hidden;
