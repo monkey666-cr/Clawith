@@ -2658,7 +2658,7 @@ function AgentDetailInner() {
                             setSettingsSaving(true);
                             setSettingsError('');
                             try {
-                                await agentApi.update(id!, {
+                                const result: any = await agentApi.update(id!, {
                                     primary_model_id: settingsForm.primary_model_id || null,
                                     fallback_model_id: settingsForm.fallback_model_id || null,
                                     context_window_size: settingsForm.context_window_size,
@@ -2671,6 +2671,24 @@ function AgentDetailInner() {
                                 } as any);
                                 queryClient.invalidateQueries({ queryKey: ['agent', id] });
                                 settingsInitRef.current = false;
+
+                                // Check if any values were clamped by company policy
+                                const clamped = result?._clamped_fields;
+                                if (clamped && clamped.length > 0) {
+                                    const isCh = i18n.language?.startsWith('zh');
+                                    const fieldNames: Record<string, string> = isCh
+                                        ? { min_poll_interval_min: 'Poll 最短间隔', webhook_rate_limit: 'Webhook 频率限制', heartbeat_interval_minutes: '心跳间隔' }
+                                        : { min_poll_interval_min: 'Min Poll Interval', webhook_rate_limit: 'Webhook Rate Limit', heartbeat_interval_minutes: 'Heartbeat Interval' };
+                                    const msgs = clamped.map((c: any) => {
+                                        const name = fieldNames[c.field] || c.field;
+                                        return isCh
+                                            ? `${name}: ${c.requested} -> ${c.applied} (公司策略限制)`
+                                            : `${name}: ${c.requested} -> ${c.applied} (company policy)`;
+                                    });
+                                    setSettingsError((isCh ? 'Some values were adjusted:\n' : 'Some values were adjusted:\n') + msgs.join('\n'));
+                                    setTimeout(() => setSettingsError(''), 5000);
+                                }
+
                                 setSettingsSaved(true);
                                 setTimeout(() => setSettingsSaved(false), 2000);
                             } catch (e: any) {
@@ -2685,8 +2703,8 @@ function AgentDetailInner() {
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                                     <h3 style={{ margin: 0 }}>{t('agent.settings.title')}</h3>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        {settingsSaved && <span style={{ fontSize: '12px', color: 'var(--success)' }}>✅ {t('agent.settings.saved', 'Saved')}</span>}
-                                        {settingsError && <span style={{ fontSize: '12px', color: 'var(--error)' }}>❌ {settingsError}</span>}
+                                        {settingsSaved && <span style={{ fontSize: '12px', color: 'var(--success)' }}>{t('agent.settings.saved', 'Saved')}</span>}
+                                        {settingsError && <span style={{ fontSize: '12px', color: settingsError.includes('adjusted') ? 'var(--warning)' : 'var(--error)', whiteSpace: 'pre-line' }}>{settingsError}</span>}
                                         <button
                                             className="btn btn-primary"
                                             disabled={!hasChanges || settingsSaving}

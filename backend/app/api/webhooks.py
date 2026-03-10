@@ -87,6 +87,21 @@ async def receive_webhook(token: str, request: Request):
         # Re-check hits against agent-specific limit (hits already collected above)
         if len(hits) > agent_rate_limit:  # > because we already appended current hit
             logger.warning(f"Webhook per-agent rate limit ({agent_rate_limit}/min) for token {token[:8]}...")
+            # Log audit entry so user can see dropped webhooks
+            try:
+                from app.models.audit import AuditLog
+                db.add(AuditLog(
+                    agent_id=target.agent_id,
+                    action="webhook_rate_limited",
+                    details={
+                        "trigger_name": target.name,
+                        "limit": agent_rate_limit,
+                        "token_prefix": token[:8],
+                    },
+                ))
+                await db.commit()
+            except Exception:
+                pass
             return JSONResponse({"ok": True}, status_code=429)
 
         cfg = target.config or {}
