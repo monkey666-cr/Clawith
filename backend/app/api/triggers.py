@@ -1,4 +1,4 @@
-"""Triggers REST API — CRUD endpoints for the Pulse page frontend."""
+"""Triggers REST API — CRUD endpoints for the Aware page frontend."""
 
 import uuid
 

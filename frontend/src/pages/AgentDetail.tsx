@@ -10,7 +10,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import FileBrowser from '../components/FileBrowser';
 import type { FileBrowserApi } from '../components/FileBrowser';
 
-const TABS = ['status', 'pulse', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'settings'] as const;
+const TABS = ['status', 'aware', 'mind', 'tools', 'skills', 'relationships', 'workspace', 'chat', 'activityLog', 'settings'] as const;
 
 const getCategoryLabels = (t: any): Record<string, string> => ({
     file: t('agent.toolCategories.file'),
@@ -498,30 +498,30 @@ export default function AgentDetail() {
         enabled: !!id,
     });
 
-    // ── Pulse tab data: triggers ──
-    const { data: pulseTriggers = [], refetch: refetchTriggers } = useQuery({
+    // ── Aware tab data: triggers ──
+    const { data: awareTriggers = [], refetch: refetchTriggers } = useQuery({
         queryKey: ['triggers', id],
         queryFn: () => triggerApi.list(id!),
-        enabled: !!id && activeTab === 'pulse',
-        refetchInterval: activeTab === 'pulse' ? 5000 : false,
+        enabled: !!id && activeTab === 'aware',
+        refetchInterval: activeTab === 'aware' ? 5000 : false,
     });
 
-    // ── Pulse tab data: agenda.md ──
+    // ── Aware tab data: agenda.md ──
     const { data: agendaFile } = useQuery({
         queryKey: ['file', id, 'agenda.md'],
         queryFn: () => fileApi.read(id!, 'agenda.md').catch(() => null),
-        enabled: !!id && activeTab === 'pulse',
+        enabled: !!id && activeTab === 'aware',
     });
 
-    // ── Pulse tab data: task_history.md ──
+    // ── Aware tab data: task_history.md ──
     const { data: taskHistoryFile } = useQuery({
         queryKey: ['file', id, 'task_history.md'],
         queryFn: () => fileApi.read(id!, 'task_history.md').catch(() => null),
-        enabled: !!id && activeTab === 'pulse',
+        enabled: !!id && activeTab === 'aware',
     });
 
-    // ── Pulse tab state ──
-    const [pulseSection, setPulseSection] = useState<'agenda' | 'triggers' | 'monologue' | 'history'>('agenda');
+    // ── Aware tab state ──
+    const [expandedFocus, setExpandedFocus] = useState<string | null>(null);
 
     const { data: soulContent } = useQuery({
         queryKey: ['file', id, 'soul.md'],
@@ -1489,240 +1489,363 @@ export default function AgentDetail() {
                             {/* Quick Actions */}
                             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                                 <button className="btn btn-secondary" onClick={() => setActiveTab('chat')}>💬 {t('agent.actions.chat')}</button>
-                                <button className="btn btn-secondary" onClick={() => setActiveTab('pulse')}>⚡ Pulse</button>
+                                <button className="btn btn-secondary" onClick={() => setActiveTab('aware')}>Aware</button>
                                 <button className="btn btn-secondary" onClick={() => setActiveTab('settings')}>⚙️ {t('agent.tabs.settings')}</button>
                             </div>
                         </div>
                     );
                 })()}
 
-                {/* ── Pulse Tab ── */}
-                {activeTab === 'pulse' && (
-                    <div>
-                        {/* Sub-navigation */}
-                        <div style={{ display: 'flex', gap: '2px', marginBottom: '16px', background: 'var(--bg-secondary)', borderRadius: '8px', padding: '3px' }}>
-                            {(['agenda', 'triggers', 'monologue', 'history'] as const).map(sec => (
-                                <button key={sec} onClick={() => setPulseSection(sec)} style={{
-                                    flex: 1, padding: '8px 12px', borderRadius: '6px', border: 'none',
-                                    background: pulseSection === sec ? 'var(--accent-primary)' : 'transparent',
-                                    color: pulseSection === sec ? '#fff' : 'var(--text-secondary)',
-                                    fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'all .2s',
-                                }}>
-                                    {sec === 'agenda' ? `📋 ${t('agent.pulse.agenda')}` : sec === 'triggers' ? `⚡ ${t('agent.pulse.triggers')}` : sec === 'monologue' ? `🤖 ${t('agent.pulse.monologue')}` : `📜 ${t('agent.pulse.history')}`}
-                                </button>
-                            ))}
-                        </div>
+                {/* ── Aware Tab ── */}
+                {activeTab === 'aware' && (() => {
+                    // Parse agenda.md into focus items with multi-line descriptions
+                    const raw = agendaFile?.content || '';
+                    const lines = raw.split('\n');
+                    const focusItems: { id: string; name: string; description: string; done: boolean; inProgress: boolean }[] = [];
+                    let currentItem: any = null;
+                    for (const line of lines) {
+                        const match = line.match(/^\s*-\s*\[([ x/])\]\s*(.+)/i);
+                        if (match) {
+                            if (currentItem) focusItems.push(currentItem);
+                            const marker = match[1];
+                            currentItem = {
+                                id: match[2].trim(),
+                                name: match[2].trim(),
+                                description: '',
+                                done: marker.toLowerCase() === 'x',
+                                inProgress: marker === '/',
+                            };
+                        } else if (currentItem && line.trim() && /^\s{2,}/.test(line)) {
+                            // Indented continuation line = description
+                            currentItem.description = currentItem.description
+                                ? currentItem.description + ' ' + line.trim()
+                                : line.trim();
+                        }
+                    }
+                    if (currentItem) focusItems.push(currentItem);
 
-                        {/* AGENDA section */}
-                        {pulseSection === 'agenda' && (() => {
-                            const raw = agendaFile?.content || '';
-                            const lines = raw.split('\n');
-                            const items = lines.filter((l: string) => /^\s*-\s*\[/.test(l)).map((l: string, i: number) => {
-                                const done = /\[x\]/i.test(l);
-                                const inProgress = /\[\//.test(l);
-                                const text = l.replace(/^\s*-\s*\[.\]\s*/, '').trim();
-                                return { id: i, text, done, inProgress };
-                            });
-                            // Active triggers as fallback agenda items
-                            const activeTriggers = pulseTriggers.filter((trig: any) => trig.is_enabled);
-                            const hasAgenda = items.length > 0;
-                            const hasActiveTriggers = activeTriggers.length > 0;
-                            return (
+                    // Helper: convert trigger config to natural language
+                    const triggerToHuman = (trig: any): string => {
+                        if (trig.type === 'cron' && trig.config?.expr) {
+                            const expr = trig.config.expr;
+                            const parts = expr.split(' ');
+                            if (parts.length >= 5) {
+                                const [min, hour, , , dow] = parts;
+                                const timeStr = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+                                if (dow === '*' && min !== '*' && hour !== '*') return `Every day at ${timeStr}`;
+                                if (dow === '1-5' && min !== '*' && hour !== '*') return `Weekdays at ${timeStr}`;
+                                if (dow === '0' || dow === '7') return `Sundays at ${timeStr}`;
+                                if (hour === '*' && min === '0') {
+                                    if (dow === '1-5') return 'Every hour on weekdays';
+                                    return 'Every hour';
+                                }
+                                if (hour === '*' && min !== '*') return `Every hour at :${min.padStart(2, '0')}`;
+                            }
+                            return `Cron: ${expr}`;
+                        }
+                        if (trig.type === 'once' && trig.config?.at) {
+                            try {
+                                return `Once at ${new Date(trig.config.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+                            } catch { return `Once at ${trig.config.at}`; }
+                        }
+                        if (trig.type === 'interval' && trig.config?.minutes) {
+                            const m = trig.config.minutes;
+                            return m >= 60 ? `Every ${m / 60}h` : `Every ${m} min`;
+                        }
+                        if (trig.type === 'poll') return `Poll: ${trig.config?.url?.substring(0, 40) || 'URL'}`;
+                        if (trig.type === 'on_message') {
+                            return `On message from ${trig.config?.from_agent_name || trig.config?.from_user_name || 'unknown'}`;
+                        }
+                        return trig.type;
+                    };
+
+                    // Group triggers by agenda_ref
+                    const triggersByFocus: Record<string, any[]> = {};
+                    const standaloneTriggers: any[] = [];
+                    for (const trig of awareTriggers) {
+                        if (trig.agenda_ref && focusItems.some(f => f.name === trig.agenda_ref)) {
+                            if (!triggersByFocus[trig.agenda_ref]) triggersByFocus[trig.agenda_ref] = [];
+                            triggersByFocus[trig.agenda_ref].push(trig);
+                        } else {
+                            standaloneTriggers.push(trig);
+                        }
+                    }
+
+                    // Group activity logs by trigger name -> agenda_ref
+                    const triggerLogsByFocus: Record<string, any[]> = {};
+                    const triggerNameToFocus: Record<string, string> = {};
+                    for (const trig of awareTriggers) {
+                        if (trig.agenda_ref) triggerNameToFocus[trig.name] = trig.agenda_ref;
+                    }
+                    const triggerRelatedLogs = activityLogs.filter((log: any) =>
+                        log.action_type === 'trigger_fired' || log.action_type === 'trigger_created' ||
+                        log.action_type === 'trigger_updated' || log.action_type === 'trigger_cancelled' ||
+                        log.summary?.includes('trigger')
+                    );
+                    for (const log of triggerRelatedLogs) {
+                        // Try to match log to a focus item via trigger name in the summary
+                        let matched = false;
+                        for (const [trigName, focusName] of Object.entries(triggerNameToFocus)) {
+                            if (log.summary?.includes(trigName) || log.detail?.tool === trigName) {
+                                if (!triggerLogsByFocus[focusName]) triggerLogsByFocus[focusName] = [];
+                                triggerLogsByFocus[focusName].push(log);
+                                matched = true;
+                                break;
+                            }
+                        }
+                        if (!matched) {
+                            if (!triggerLogsByFocus['__unmatched__']) triggerLogsByFocus['__unmatched__'] = [];
+                            triggerLogsByFocus['__unmatched__'].push(log);
+                        }
+                    }
+
+                    const hasFocusItems = focusItems.length > 0;
+                    const hasStandalone = standaloneTriggers.length > 0;
+
+                    return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {/* Header */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                 <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <h4 style={{ margin: 0 }}>📋 {t('agent.pulse.agenda')}</h4>
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.pulse.agendaDesc')}</span>
-                                    </div>
-                                    {/* Agenda items from agenda.md */}
-                                    {hasAgenda && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: hasActiveTriggers ? '16px' : '0' }}>
-                                            {items.map((it: any) => (
-                                                <div key={it.id} className="card" style={{
-                                                    padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px',
-                                                    opacity: it.done ? 0.5 : 1,
-                                                    borderLeft: it.inProgress ? '3px solid var(--accent-primary)' : it.done ? '3px solid var(--success)' : '3px solid var(--border-subtle)',
-                                                }}>
-                                                    <span style={{ fontSize: '16px' }}>{it.done ? '✅' : it.inProgress ? '🔄' : '⬜'}</span>
-                                                    <span style={{ fontSize: '13px', textDecoration: it.done ? 'line-through' : 'none' }}>{it.text}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {/* Active triggers shown as scheduled items */}
-                                    {hasActiveTriggers && (
-                                        <div>
-                                            {hasAgenda && (
-                                                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <span>⏰</span> {t('agent.pulse.scheduledTriggers', 'Scheduled Triggers')}
-                                                </div>
-                                            )}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                {activeTriggers.map((trig: any) => (
-                                                    <div key={trig.id} className="card" style={{
-                                                        padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px',
-                                                        borderLeft: `3px solid ${trig.type === 'cron' ? '#7c3aed' : trig.type === 'once' ? '#059669' : trig.type === 'interval' ? '#0284c7' : trig.type === 'poll' ? '#ea580c' : '#db2777'}`,
-                                                    }}>
-                                                        <span style={{ fontSize: '16px' }}>⏰</span>
-                                                        <div style={{ flex: 1 }}>
-                                                            <div style={{ fontSize: '13px', fontWeight: 500 }}>{trig.name}</div>
-                                                            {trig.reason && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{trig.reason}</div>}
-                                                        </div>
-                                                        <span style={{
-                                                            fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
-                                                            background: trig.type === 'cron' ? '#ede9fe' : trig.type === 'once' ? '#d1fae5' : trig.type === 'interval' ? '#dbeafe' : trig.type === 'poll' ? '#ffedd5' : '#fce7f3',
-                                                            color: trig.type === 'cron' ? '#7c3aed' : trig.type === 'once' ? '#059669' : trig.type === 'interval' ? '#0284c7' : trig.type === 'poll' ? '#ea580c' : '#db2777',
-                                                            fontWeight: 600,
-                                                        }}>{trig.type}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                    {/* Empty state only when BOTH are empty */}
-                                    {!hasAgenda && !hasActiveTriggers && (
-                                        <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                                            {t('agent.pulse.agendaEmpty')}
-                                        </div>
-                                    )}
-                                    {/* Raw markdown */}
-                                    {raw && (
-                                        <details style={{ marginTop: '12px' }}>
-                                            <summary style={{ fontSize: '11px', color: 'var(--text-tertiary)', cursor: 'pointer' }}>{t('agent.pulse.viewRawMarkdown')}</summary>
-                                            <pre style={{ fontSize: '11px', marginTop: '8px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '6px', whiteSpace: 'pre-wrap', maxHeight: '300px', overflow: 'auto' }}>{raw}</pre>
-                                        </details>
-                                    )}
+                                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>{t('agent.aware.focus')}</h4>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t('agent.aware.focusDesc')}</span>
                                 </div>
-                            );
-                        })()}
+                            </div>
 
+                            {/* Focus Items */}
+                            {hasFocusItems && focusItems.map((item) => {
+                                const isExpanded = expandedFocus === item.id;
+                                const itemTriggers = triggersByFocus[item.name] || [];
+                                const itemLogs = triggerLogsByFocus[item.name] || [];
+                                const displayTitle = item.description || item.name;
+                                const displaySubtitle = item.description ? item.name : null;
 
-                        {/* TRIGGERS section */}
-                        {pulseSection === 'triggers' && (
-                            <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <h4 style={{ margin: 0 }}>⚡ {t('agent.pulse.triggers')}</h4>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.pulse.triggersDesc')}</span>
-                                </div>
-                                {pulseTriggers.length === 0 ? (
-                                    <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                                        {t('agent.pulse.triggersEmpty')}
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                        {pulseTriggers.map((trig: any) => (
-                                            <div key={trig.id} className="card" style={{
+                                return (
+                                    <div key={item.id} style={{
+                                        borderRadius: '8px',
+                                        border: '1px solid var(--border-subtle)',
+                                        overflow: 'hidden',
+                                        marginBottom: '6px',
+                                        background: 'var(--bg-primary)',
+                                    }}>
+                                        {/* Focus Item Header */}
+                                        <div
+                                            onClick={() => setExpandedFocus(isExpanded ? null : item.id)}
+                                            style={{
                                                 padding: '12px 16px',
-                                                opacity: trig.is_enabled ? 1 : 0.5,
-                                                borderLeft: `3px solid ${trig.is_enabled ? (trig.type === 'cron' ? '#7c3aed' : trig.type === 'once' ? '#059669' : trig.type === 'interval' ? '#0284c7' : trig.type === 'poll' ? '#ea580c' : '#db2777') : '#999'}`,
-                                            }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                    <span style={{ fontWeight: 600, fontSize: '13px' }}>{trig.name}</span>
-                                                    <span style={{
-                                                        fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
-                                                        background: trig.type === 'cron' ? '#ede9fe' : trig.type === 'once' ? '#d1fae5' : trig.type === 'interval' ? '#dbeafe' : trig.type === 'poll' ? '#ffedd5' : '#fce7f3',
-                                                        color: trig.type === 'cron' ? '#7c3aed' : trig.type === 'once' ? '#059669' : trig.type === 'interval' ? '#0284c7' : trig.type === 'poll' ? '#ea580c' : '#db2777',
-                                                        fontWeight: 600,
-                                                    }}>{trig.type}</span>
-                                                    {!trig.is_enabled && <span style={{ fontSize: '10px', color: '#999' }}>⏸ {t('agent.pulse.disabled')}</span>}
-                                                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.pulse.fired', { count: trig.fire_count })}</span>
-                                                </div>
-                                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>{trig.reason}</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
-                                                        {JSON.stringify(trig.config).substring(0, 80)}
-                                                    </span>
-                                                    <div style={{ display: 'flex', gap: '4px' }}>
-                                                        <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px' }}
-                                                            onClick={async () => {
-                                                                await triggerApi.update(id!, trig.id, { is_enabled: !trig.is_enabled });
-                                                                refetchTriggers();
-                                                            }}>
-                                                            {trig.is_enabled ? `⏸ ${t('agent.pulse.disable')}` : `▶️ ${t('agent.pulse.enable')}`}
-                                                        </button>
-                                                        <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--error)' }}
-                                                            onClick={async () => {
-                                                                if (confirm(t('agent.pulse.deleteTriggerConfirm', { name: trig.name }))) {
-                                                                    await triggerApi.delete(id!, trig.id);
-                                                                    refetchTriggers();
-                                                                }
-                                                            }}>
-                                                            🗑
-                                                        </button>
+                                                display: 'flex',
+                                                alignItems: 'flex-start',
+                                                gap: '12px',
+                                                cursor: 'pointer',
+                                                transition: 'background 0.15s',
+                                            }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                        >
+                                            {/* Status indicator */}
+                                            <div style={{
+                                                width: '8px', height: '8px', borderRadius: '50%', marginTop: '5px', flexShrink: 0,
+                                                background: item.done ? 'var(--success, #10b981)' : item.inProgress ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                                            }} />
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{
+                                                    fontSize: '13px', fontWeight: 500, lineHeight: '20px',
+                                                    textDecoration: item.done ? 'line-through' : 'none',
+                                                    color: item.done ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                                                }}>{displayTitle}</div>
+                                                {displaySubtitle && (
+                                                    <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginTop: '2px' }}>
+                                                        {displaySubtitle}
                                                     </div>
+                                                )}
+                                            </div>
+                                            {/* Trigger count badge */}
+                                            {itemTriggers.length > 0 && (
+                                                <span style={{
+                                                    fontSize: '11px', color: 'var(--text-tertiary)',
+                                                    padding: '2px 8px', borderRadius: '10px',
+                                                    background: 'var(--bg-secondary)',
+                                                    whiteSpace: 'nowrap',
+                                                }}>
+                                                    {itemTriggers.length} trigger{itemTriggers.length > 1 ? 's' : ''}
+                                                </span>
+                                            )}
+                                            {/* Expand arrow */}
+                                            <span style={{
+                                                fontSize: '11px', color: 'var(--text-tertiary)',
+                                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                                transition: 'transform 0.15s',
+                                                marginTop: '4px',
+                                            }}>&#9654;</span>
+                                        </div>
+
+                                        {/* Expanded content */}
+                                        {isExpanded && (
+                                            <div style={{ padding: '0 16px 12px 36px', borderTop: '1px solid var(--border-subtle)' }}>
+                                                {/* Nested Triggers */}
+                                                {itemTriggers.length > 0 && (
+                                                    <div style={{ marginTop: '12px' }}>
+                                                        {itemTriggers.map((trig: any) => (
+                                                            <div key={trig.id} style={{
+                                                                display: 'flex', alignItems: 'center', gap: '10px',
+                                                                padding: '8px 12px', marginBottom: '4px',
+                                                                borderRadius: '6px', background: 'var(--bg-secondary)',
+                                                                opacity: trig.is_enabled ? 1 : 0.5,
+                                                            }}>
+                                                                <div style={{ flex: 1 }}>
+                                                                    <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                                                                        {triggerToHuman(trig)}
+                                                                    </div>
+                                                                    {trig.reason && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{trig.reason}</div>}
+                                                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '2px', fontFamily: 'monospace' }}>
+                                                                        {trig.type === 'cron' ? trig.config?.expr : ''}{' '}
+                                                                    </div>
+                                                                </div>
+                                                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                                                                    {t('agent.aware.fired', { count: trig.fire_count })}
+                                                                </span>
+                                                                {!trig.is_enabled && (
+                                                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{t('agent.aware.disabled')}</span>
+                                                                )}
+                                                                <div style={{ display: 'flex', gap: '4px' }}>
+                                                                    <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px' }}
+                                                                        onClick={async (e) => {
+                                                                            e.stopPropagation();
+                                                                            await triggerApi.update(id!, trig.id, { is_enabled: !trig.is_enabled });
+                                                                            refetchTriggers();
+                                                                        }}>
+                                                                        {trig.is_enabled ? t('agent.aware.disable') : t('agent.aware.enable')}
+                                                                    </button>
+                                                                    <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--error)' }}
+                                                                        onClick={async (e) => {
+                                                                            e.stopPropagation();
+                                                                            if (confirm(t('agent.aware.deleteTriggerConfirm', { name: trig.name }))) {
+                                                                                await triggerApi.delete(id!, trig.id);
+                                                                                refetchTriggers();
+                                                                            }
+                                                                        }}>
+                                                                        {t('common.delete', 'Delete')}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Activity Logs for this focus */}
+                                                {itemLogs.length > 0 && (
+                                                    <div style={{ marginTop: '12px' }}>
+                                                        <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: '6px' }}>
+                                                            {t('agent.aware.reflections')}
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                            {itemLogs.slice(0, 10).map((log: any) => (
+                                                                <div key={log.id} style={{
+                                                                    padding: '6px 12px', borderRadius: '6px',
+                                                                    background: 'var(--bg-secondary)',
+                                                                    borderLeft: '2px solid var(--border-subtle)',
+                                                                }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                                                        <span style={{
+                                                                            fontSize: '10px', padding: '1px 5px', borderRadius: '3px',
+                                                                            background: log.action_type === 'trigger_fired' ? 'rgba(var(--accent-primary-rgb, 99,102,241), 0.1)' : 'var(--bg-tertiary, #e5e7eb)',
+                                                                            color: log.action_type === 'trigger_fired' ? 'var(--accent-primary)' : 'var(--text-tertiary)',
+                                                                            fontWeight: 500,
+                                                                        }}>{log.action_type?.replace('trigger_', '')}</span>
+                                                                        <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                                                                            {new Date(log.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{log.summary}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {itemTriggers.length === 0 && itemLogs.length === 0 && (
+                                                    <div style={{ padding: '12px 0', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                                        {t('agent.aware.noTriggers')}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+
+                            {/* Standalone Triggers (not linked to any focus item) */}
+                            {hasStandalone && (
+                                <div style={{ marginTop: hasFocusItems ? '16px' : '0' }}>
+                                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: '8px' }}>
+                                        {t('agent.aware.standaloneTriggers')}
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {standaloneTriggers.map((trig: any) => (
+                                            <div key={trig.id} style={{
+                                                padding: '10px 14px', borderRadius: '8px',
+                                                border: '1px solid var(--border-subtle)',
+                                                display: 'flex', alignItems: 'center', gap: '10px',
+                                                opacity: trig.is_enabled ? 1 : 0.5,
+                                                background: 'var(--bg-primary)',
+                                            }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontSize: '13px', fontWeight: 500 }}>{triggerToHuman(trig)}</div>
+                                                    {trig.reason && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{trig.reason}</div>}
+                                                    <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginTop: '2px' }}>
+                                                        {trig.name}{trig.type === 'cron' ? ` · ${trig.config?.expr}` : ''}
+                                                    </div>
+                                                </div>
+                                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                                                    {t('agent.aware.fired', { count: trig.fire_count })}
+                                                </span>
+                                                {!trig.is_enabled && (
+                                                    <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{t('agent.aware.disabled')}</span>
+                                                )}
+                                                <div style={{ display: 'flex', gap: '4px' }}>
+                                                    <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px' }}
+                                                        onClick={async () => {
+                                                            await triggerApi.update(id!, trig.id, { is_enabled: !trig.is_enabled });
+                                                            refetchTriggers();
+                                                        }}>
+                                                        {trig.is_enabled ? t('agent.aware.disable') : t('agent.aware.enable')}
+                                                    </button>
+                                                    <button className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--error)' }}
+                                                        onClick={async () => {
+                                                            if (confirm(t('agent.aware.deleteTriggerConfirm', { name: trig.name }))) {
+                                                                await triggerApi.delete(id!, trig.id);
+                                                                refetchTriggers();
+                                                            }
+                                                        }}>
+                                                        {t('common.delete', 'Delete')}
+                                                    </button>
                                                 </div>
                                             </div>
                                         ))}
-
                                     </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* INNER MONOLOGUE section */}
-                        {pulseSection === 'monologue' && (() => {
-                            // Filter activity logs for trigger-related entries
-                            const triggerLogs = activityLogs.filter((log: any) =>
-                                log.action_type === 'trigger_fired' || log.action_type === 'trigger_created' ||
-                                log.action_type === 'trigger_updated' || log.action_type === 'trigger_cancelled' ||
-                                log.summary?.includes('内心独白') || log.summary?.includes('trigger')
-                            );
-                            return (
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <h4 style={{ margin: 0 }}>🤖 {t('agent.pulse.monologue')}</h4>
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.pulse.monologueDesc')}</span>
-                                    </div>
-                                    {triggerLogs.length === 0 ? (
-                                        <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                                            {t('agent.pulse.monologueEmpty')}
-                                        </div>
-                                    ) : (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                            {triggerLogs.slice(0, 30).map((log: any) => (
-                                                <div key={log.id} className="card" style={{ padding: '10px 14px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                        <span style={{
-                                                            fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
-                                                            background: log.action_type === 'trigger_fired' ? '#fce7f3' : '#e0f2fe',
-                                                            color: log.action_type === 'trigger_fired' ? '#db2777' : '#0284c7',
-                                                            fontWeight: 600,
-                                                        }}>{log.action_type}</span>
-                                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                                                            {new Date(log.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                    </div>
-                                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{log.summary}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
-                            );
-                        })()}
+                            )}
 
-                        {/* TASK HISTORY section */}
-                        {pulseSection === 'history' && (() => {
-                            const histRaw = taskHistoryFile?.content || '';
-                            return (
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <h4 style={{ margin: 0 }}>📜 {t('agent.pulse.historyTitle')}</h4>
-                                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{t('agent.pulse.historyDesc')}</span>
-                                    </div>
-                                    {!histRaw ? (
-                                        <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                                            {t('agent.pulse.historyEmpty')}
-                                        </div>
-                                    ) : (
-                                        <div className="card" style={{ padding: '16px' }}>
-                                            <MarkdownRenderer content={histRaw} />
-                                        </div>
-                                    )}
+                            {/* Empty state */}
+                            {!hasFocusItems && !hasStandalone && (
+                                <div style={{
+                                    padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)',
+                                    border: '1px dashed var(--border-subtle)', borderRadius: '8px',
+                                }}>
+                                    {t('agent.aware.focusEmpty')}
                                 </div>
-                            );
-                        })()}
-                    </div>
-                )}
+                            )}
+
+                            {/* Raw markdown toggle */}
+                            {raw && (
+                                <details style={{ marginTop: '12px' }}>
+                                    <summary style={{ fontSize: '11px', color: 'var(--text-tertiary)', cursor: 'pointer' }}>{t('agent.aware.viewRawMarkdown')}</summary>
+                                    <pre style={{ fontSize: '11px', marginTop: '8px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '6px', whiteSpace: 'pre-wrap', maxHeight: '300px', overflow: 'auto' }}>{raw}</pre>
+                                </details>
+                            )}
+                        </div>
+                    );
+                })()}
 
 
                 {/* ── Mind Tab (Soul + Memory + Heartbeat) ── */}
@@ -2505,6 +2628,7 @@ export default function AgentDetail() {
 
                                 {/* Welcome Message */}
                                 {(() => {
+                                    const isChinese = i18n.language?.startsWith('zh');
                                     const [wmDraft, setWmDraft] = useState((agent as any)?.welcome_message || '');
                                     const [wmSaved, setWmSaved] = useState(false);
                                     // Sync draft when agent data reloads
