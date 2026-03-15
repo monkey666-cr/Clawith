@@ -4527,6 +4527,32 @@ function AgentDetailInner() {
                                                 </div>
                                             ) : (
                                                 <div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                                                        <div>
+                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>App ID *</label>
+                                                            <input className="input" value={channelForm.app_id} onChange={e => setChannelForm({ ...channelForm, app_id: e.target.value })} placeholder="cli_xxxxxxxxxxxxxxxx" style={{ fontSize: '12px' }} />
+                                                        </div>
+                                                        <div>
+                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>App Secret *</label>
+                                                            <div style={{ position: 'relative' }}>
+                                                                <input className="input" type={showPwds['feishu_secret'] ? 'text' : 'password'} value={channelForm.app_secret} onChange={e => setChannelForm({ ...channelForm, app_secret: e.target.value })} style={{ fontSize: '12px', paddingRight: '36px', width: '100%' }} />
+                                                                <button type="button" onClick={() => togglePwd('feishu_secret')} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '2px', display: 'flex', alignItems: 'center' }}>{showPwds['feishu_secret'] ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>}</button>
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '8px' }}>Connection Mode</label>
+                                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                                    <input type="radio" name="connection_mode" value="webhook" checked={channelForm.connection_mode === 'webhook'} onChange={() => setChannelForm({ ...channelForm, connection_mode: 'webhook' })} />
+                                                                    Webhook (Event Subscription)
+                                                                </label>
+                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                                    <input type="radio" name="connection_mode" value="websocket" checked={channelForm.connection_mode === 'websocket'} onChange={() => setChannelForm({ ...channelForm, connection_mode: 'websocket' })} />
+                                                                    Long Connection (WebSocket)
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                     <details style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                                         <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--text-primary)', userSelect: 'none', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                             <span style={{ fontSize: '10px' }}>▶</span> {t('channelGuide.setupGuide')}
@@ -4575,42 +4601,15 @@ function AgentDetailInner() {
                                                         </div>
                                                         <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', background: 'var(--bg-secondary)', padding: '6px 10px', borderRadius: '6px' }}>💡 {t('channelGuide.feishu.note')}</div>
                                                     </details>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                                                        <div>
-                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>App ID *</label>
-                                                            <input className="input" value={channelForm.app_id} onChange={e => setChannelForm({ ...channelForm, app_id: e.target.value })} placeholder="cli_xxxxxxxxxxxxxxxx" style={{ fontSize: '12px' }} />
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>App Secret *</label>
+                                                    {channelForm.connection_mode === 'webhook' && (
+                                                        <div style={{ marginBottom: '8px' }}>
+                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>Encrypt Key</label>
                                                             <div style={{ position: 'relative' }}>
-                                                                <input className="input" type={showPwds['feishu_secret'] ? 'text' : 'password'} value={channelForm.app_secret} onChange={e => setChannelForm({ ...channelForm, app_secret: e.target.value })} style={{ fontSize: '12px', paddingRight: '36px', width: '100%' }} />
-                                                                <button type="button" onClick={() => togglePwd('feishu_secret')} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '2px', display: 'flex', alignItems: 'center' }}>{showPwds['feishu_secret'] ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>}</button>
+                                                                <input className="input" type={showPwds['feishu_encrypt'] ? 'text' : 'password'} value={channelForm.encrypt_key} onChange={e => setChannelForm({ ...channelForm, encrypt_key: e.target.value })} style={{ fontSize: '12px', paddingRight: '36px', width: '100%' }} />
+                                                                <button type="button" onClick={() => togglePwd('feishu_encrypt')} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '2px', display: 'flex', alignItems: 'center' }}>{showPwds['feishu_encrypt'] ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>}</button>
                                                             </div>
                                                         </div>
-                                                        <div>
-                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '8px' }}>Connection Mode</label>
-                                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
-                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                                                                    <input type="radio" name="connection_mode" value="webhook" checked={channelForm.connection_mode === 'webhook'} onChange={() => setChannelForm({ ...channelForm, connection_mode: 'webhook' })} />
-                                                                    Webhook (Event Subscription)
-                                                                </label>
-                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                                                                    <input type="radio" name="connection_mode" value="websocket" checked={channelForm.connection_mode === 'websocket'} onChange={() => setChannelForm({ ...channelForm, connection_mode: 'websocket' })} />
-                                                                    Long Connection (WebSocket)
-                                                                </label>
-                                                            </div>
-                                                        </div>
-                                                        {channelForm.connection_mode === 'webhook' && (
-                                                            <div>
-                                                                <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>Encrypt Key</label>
-                                                                <div style={{ position: 'relative' }}>
-                                                                    <input className="input" type={showPwds['feishu_encrypt'] ? 'text' : 'password'} value={channelForm.encrypt_key} onChange={e => setChannelForm({ ...channelForm, encrypt_key: e.target.value })} style={{ fontSize: '12px', paddingRight: '36px', width: '100%' }} />
-                                                                    <button type="button" onClick={() => togglePwd('feishu_encrypt')} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '2px', display: 'flex', alignItems: 'center' }}>{showPwds['feishu_encrypt'] ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>}</button>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-
+                                                    )}
                                                     <div style={{ display: 'flex', gap: '8px' }}>
                                                         <button className="btn btn-primary" style={{ fontSize: '12px' }} onClick={() => { saveChannel.mutate(); setFeishuEditing(false); }} disabled={!channelForm.app_id || !channelForm.app_secret || saveChannel.isPending}>
                                                             {saveChannel.isPending ? t('common.loading') : (feishuEditing ? 'Save Changes' : t('agent.settings.channel.saveChannel'))}
@@ -4690,6 +4689,20 @@ function AgentDetailInner() {
                                                 </div>
                                             ) : (
                                                 <div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                                                        <div>
+                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '8px' }}>Connection Mode</label>
+                                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
+                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                                    <input type="radio" name="wecom_connection_mode" value="websocket" checked={wecomForm.connection_mode === 'websocket'} onChange={() => setWecomForm(f => ({ ...f, connection_mode: 'websocket' }))} />
+                                                                    WebSocket (Recommended)
+                                                                </label>
+                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                                    <input type="radio" name="wecom_connection_mode" value="webhook" checked={wecomForm.connection_mode === 'webhook'} onChange={() => setWecomForm(f => ({ ...f, connection_mode: 'webhook' }))} />
+                                                                    Webhook
+                                                                </label>
+                                                            </div>
+                                                        </div>
                                                     <details style={{ marginBottom: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                                         <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--text-primary)', userSelect: 'none', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                             <span style={{ fontSize: '10px' }}>&#9654;</span> {t('channelGuide.setupGuide')}
@@ -4713,20 +4726,6 @@ function AgentDetailInner() {
                                                         </ol>
                                                         <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', background: 'var(--bg-secondary)', padding: '6px 10px', borderRadius: '6px' }}>{wecomForm.connection_mode === 'websocket' ? t('channelGuide.wecom.ws_note') : t('channelGuide.wecom.note')}</div>
                                                     </details>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-                                                        <div>
-                                                            <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '8px' }}>Connection Mode</label>
-                                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '8px' }}>
-                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                                                                    <input type="radio" name="wecom_connection_mode" value="websocket" checked={wecomForm.connection_mode === 'websocket'} onChange={() => setWecomForm(f => ({ ...f, connection_mode: 'websocket' }))} />
-                                                                    WebSocket (Recommended)
-                                                                </label>
-                                                                <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                                                                    <input type="radio" name="wecom_connection_mode" value="webhook" checked={wecomForm.connection_mode === 'webhook'} onChange={() => setWecomForm(f => ({ ...f, connection_mode: 'webhook' }))} />
-                                                                    Webhook
-                                                                </label>
-                                                            </div>
-                                                        </div>
                                                         {wecomForm.connection_mode === 'websocket' ? (<>
                                                         <div>
                                                             <label style={{ fontSize: '12px', fontWeight: 500, display: 'block', marginBottom: '4px' }}>Bot ID *</label>
