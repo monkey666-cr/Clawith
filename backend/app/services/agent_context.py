@@ -166,7 +166,12 @@ async def build_agent_context(agent_id: uuid.UUID, agent_name: str, role_descrip
         soul = "\n".join(soul.split("\n")[1:]).strip()
 
     # --- Memory ---
-    memory = _read_file_safe(tool_ws / "memory" / "memory.md", 2000) or _read_file_safe(tool_ws / "memory.md", 2000)
+    memory = (
+        _read_file_safe(tool_ws / "memory" / "memory.md", 2000)
+        or _read_file_safe(tool_ws / "memory.md", 2000)
+        or _read_file_safe(data_ws / "memory" / "memory.md", 2000)
+        or _read_file_safe(data_ws / "memory.md", 2000)
+    )
     if memory.startswith("# "):
         memory = "\n".join(memory.split("\n")[1:]).strip()
 
