@@ -33,7 +33,16 @@ class AgentBayClient:
         self._image_type = None
 
     async def create_session(self, image: str = "linux_latest") -> AgentBaySession:
-        """Create a new session using SDK."""
+        """Create a new session using SDK.
+
+        Closes any existing session first to prevent leaked sessions
+        on the AgentBay API side.
+        """
+        # Close existing session to prevent leaking concurrent sessions
+        if self._session:
+            logger.info("[AgentBay] Closing existing session before creating new one")
+            await self.close_session()
+
         image_id_map = {
             "browser_latest": "browser_latest",
             "code_latest": "linux_latest",
@@ -151,8 +160,11 @@ class AgentBayClient:
 
 
 # ─── Session Cache for Tool Executions ──────────────────────────
+# Key: (agent_id, image_type) so browser and code sessions coexist.
+# Previously keyed by agent_id only, which caused browser session
+# to be destroyed when code session was created and vice versa.
 
-_agentbay_sessions: dict[uuid.UUID, tuple[AgentBayClient, str, datetime]] = {}
+_agentbay_sessions: dict[tuple[uuid.UUID, str], tuple[AgentBayClient, datetime]] = {}
 _AGENTBAY_SESSION_TIMEOUT = timedelta(minutes=5)
 
 
@@ -210,17 +222,28 @@ async def test_agentbay_channel(agent_id: uuid.UUID, current_user, db) -> dict:
 
 
 async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str) -> AgentBayClient:
-    """Get or create AgentBay client for agent."""
+    """Get or create AgentBay client for agent.
+
+    Sessions are cached per (agent_id, image_type) so that an agent
+    can hold both a browser and a code session simultaneously.
+    Switching between browser and code operations no longer destroys
+    the other session.
+    """
 
     now = datetime.now()
-    if agent_id in _agentbay_sessions:
-        client, cached_type, last_used = _agentbay_sessions[agent_id]
-        if cached_type == image_type and now - last_used < _AGENTBAY_SESSION_TIMEOUT:
-            _agentbay_sessions[agent_id] = (client, image_type, now)
+    cache_key = (agent_id, image_type)
+
+    if cache_key in _agentbay_sessions:
+        client, last_used = _agentbay_sessions[cache_key]
+        if now - last_used < _AGENTBAY_SESSION_TIMEOUT:
+            # Session still valid, refresh timestamp and reuse
+            _agentbay_sessions[cache_key] = (client, now)
             return client
         else:
+            # Session expired, close and remove
+            logger.info(f"[AgentBay] Session expired for {image_type}, closing")
             await client.close_session()
-            del _agentbay_sessions[agent_id]
+            del _agentbay_sessions[cache_key]
 
     from app.services.agent_tools import _get_tool_config
 
@@ -248,7 +271,7 @@ async def get_agentbay_client_for_agent(agent_id: uuid.UUID, image_type: str) ->
     else:
         await client.create_session("code_latest")
 
-    _agentbay_sessions[agent_id] = (client, image_type, now)
+    _agentbay_sessions[cache_key] = (client, now)
     return client
 
 
@@ -256,9 +279,11 @@ async def cleanup_agentbay_sessions():
     """Clean up expired AgentBay sessions."""
     now = datetime.now()
     expired = [
-        agent_id for agent_id, (client, _, last_used) in _agentbay_sessions.items()
+        cache_key for cache_key, (client, last_used) in _agentbay_sessions.items()
         if now - last_used > _AGENTBAY_SESSION_TIMEOUT
     ]
-    for agent_id in expired:
-        client, _, _ = _agentbay_sessions.pop(agent_id)
+    for cache_key in expired:
+        client, _ = _agentbay_sessions.pop(cache_key)
+        agent_id, image_type = cache_key
+        logger.info(f"[AgentBay] Cleaning up expired {image_type} session for agent {agent_id}")
         await client.close_session()
