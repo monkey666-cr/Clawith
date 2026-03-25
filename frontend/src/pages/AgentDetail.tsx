@@ -2894,8 +2894,12 @@ function AgentDetailInner() {
                                                 {agentClawhubResults.map((r: any) => (
                                                     <div key={r.slug} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: '8px', marginBottom: '6px', border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
                                                         <div style={{ flex: 1 }}>
-                                                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{r.displayName || r.slug}</div>
-                                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{r.summary?.substring(0, 100)}</div>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                <span style={{ fontWeight: 600, fontSize: '13px' }}>{r.displayName || r.slug}</span>
+                                                                {r.version && <span style={{ fontSize: '10px', color: 'var(--accent-text)', background: 'var(--accent-subtle)', padding: '1px 5px', borderRadius: '4px' }}>v{r.version}</span>}
+                                                            </div>
+                                                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{r.summary?.substring(0, 100)}{r.summary?.length > 100 ? '...' : ''}</div>
+                                                            {r.updatedAt && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px', opacity: 0.7 }}>Updated {new Date(r.updatedAt).toLocaleDateString()}</div>}
                                                         </div>
                                                         <button
                                                             className="btn btn-secondary"

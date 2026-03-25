@@ -700,10 +700,12 @@ function SkillsTab() {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                             <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.displayName}</span>
                                             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{r.slug}</span>
+                                            {r.version && <span style={{ fontSize: '10px', color: 'var(--accent-text)', background: 'var(--accent-subtle)', padding: '1px 6px', borderRadius: '4px' }}>v{r.version}</span>}
                                         </div>
                                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
                                             {r.summary?.slice(0, 160)}{r.summary?.length > 160 ? '...' : ''}
                                         </div>
+                                        {r.updatedAt && <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Updated {new Date(r.updatedAt).toLocaleDateString()}</div>}
                                     </div>
                                     <button
                                         className="btn btn-secondary"
