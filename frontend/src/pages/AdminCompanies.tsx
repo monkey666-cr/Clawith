@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { adminApi } from '../services/api';
 import { useAuthStore } from '../stores';
 import { saveAccentColor, getSavedAccentColor } from '../utils/theme';
+import PlatformDashboard from './PlatformDashboard';
 
 // Helper for authenticated JSON fetch
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -34,7 +35,7 @@ function formatDate(dt: string | null | undefined): string {
     return new Date(dt).toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
-type SortKey = 'name' | 'user_count' | 'agent_count' | 'total_tokens' | 'created_at' | 'is_active';
+type SortKey = 'name' | 'org_admin_email' | 'user_count' | 'agent_count' | 'total_tokens' | 'created_at' | 'is_active';
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE = 15;
@@ -43,7 +44,7 @@ const PAGE_SIZE = 15;
 export default function AdminCompanies() {
     const { t } = useTranslation();
     const user = useAuthStore((s) => s.user);
-    const [activeTab, setActiveTab] = useState<'platform' | 'companies'>('platform');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'platform' | 'companies'>('dashboard');
 
     // Guard: only platform_admin
     if (user?.role !== 'platform_admin') {
@@ -55,6 +56,7 @@ export default function AdminCompanies() {
     }
 
     const tabs = [
+        { key: 'dashboard' as const, label: t('admin.tab.dashboard', 'Dashboard') },
         { key: 'platform' as const, label: t('admin.tab.platform', 'Platform') },
         { key: 'companies' as const, label: t('admin.tab.companies', 'Companies') },
     ];
@@ -82,6 +84,7 @@ export default function AdminCompanies() {
                 ))}
             </div>
 
+            {activeTab === 'dashboard' && <PlatformDashboard />}
             {activeTab === 'platform' && <PlatformTab />}
             {activeTab === 'companies' && <CompaniesTab />}
         </div>
@@ -335,7 +338,7 @@ function CompaniesTab() {
         const list = [...companies];
         list.sort((a, b) => {
             let av = a[sortKey], bv = b[sortKey];
-            if (sortKey === 'name') {
+            if (sortKey === 'name' || sortKey === 'org_admin_email') {
                 av = (av || '').toLowerCase();
                 bv = (bv || '').toLowerCase();
             }
@@ -407,6 +410,7 @@ function CompaniesTab() {
 
     const columns: { key: SortKey; label: string; flex: string }[] = [
         { key: 'name', label: t('admin.company', 'Company'), flex: '2fr' },
+        { key: 'org_admin_email', label: t('admin.orgAdmin', 'Admin Email'), flex: '1.5fr' },
         { key: 'user_count', label: t('admin.users', 'Users'), flex: '80px' },
         { key: 'agent_count', label: t('admin.agents', 'Agents'), flex: '80px' },
         { key: 'total_tokens', label: t('admin.tokens', 'Token Usage'), flex: '100px' },
@@ -578,6 +582,9 @@ function CompaniesTab() {
                         <div>
                             <div style={{ fontWeight: 500 }}>{c.name}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{c.slug}</div>
+                        </div>
+                        <div style={{ fontSize: '12px', color: c.org_admin_email ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
+                            {c.org_admin_email || '-'}
                         </div>
                         <div>{c.user_count ?? '-'}</div>
                         <div>{c.agent_count ?? '-'}</div>
