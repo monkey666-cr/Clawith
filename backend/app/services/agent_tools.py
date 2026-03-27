@@ -497,7 +497,7 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "execute_code",
-            "description": "Execute code (Python, Bash, or Node.js) in a sandboxed environment within the agent's workspace directory. Useful for data processing, calculations, file transformations, and automation scripts. Code runs with the workspace as the working directory. Security restrictions apply: no network access commands, no system-level operations, 30-second timeout.",
+            "description": "Execute code (Python, Bash, or Node.js) in a sandboxed environment within the agent's root directory. Useful for data processing, calculations, file transformations, and automation scripts. Code runs with the agent root as the working directory, so you can access skills/, workspace/, memory/ etc. directly. Security restrictions apply: no network access commands, no system-level operations, 30-second timeout.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -508,7 +508,7 @@ AGENT_TOOLS = [
                     },
                     "code": {
                         "type": "string",
-                        "description": "Code to execute. For Python, you can import standard libraries (json, csv, math, re, collections, etc.). Working directory is your workspace/.",
+                        "description": "Code to execute. For Python, you can import standard libraries (json, csv, math, re, collections, etc.). Working directory is the agent root (skills/, workspace/, memory/ are accessible).",
                     },
                     "timeout": {
                         "type": "integer",
@@ -3867,8 +3867,9 @@ async def _execute_code(agent_id: Optional[uuid.UUID], ws: Path, arguments: dict
     if language not in ("python", "bash", "node"):
         return f"❌ Unsupported language: {language}. Use: python, bash, or node"
 
-    # Working directory is the agent's workspace/ subdirectory (must be absolute)
-    work_dir = (ws / "workspace").resolve()
+    # Working directory is the agent's root directory (must be absolute)
+    # This allows code to access skills/, workspace/, memory/ etc. directly
+    work_dir = ws.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -3933,8 +3934,9 @@ async def _execute_code_legacy(ws: Path, arguments: dict) -> str:
     if safety_error:
         return safety_error
 
-    # Working directory is the agent's workspace/ subdirectory (must be absolute)
-    work_dir = (ws / "workspace").resolve()
+    # Working directory is the agent's root directory (must be absolute)
+    # This allows code to access skills/, workspace/, memory/ etc. directly
+    work_dir = ws.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine command and file extension
