@@ -528,6 +528,9 @@ class AgentBayClient:
             from io import BytesIO
             from PIL import Image
 
+            if isinstance(screenshot_data, str):
+                screenshot_data = base64.b64decode(screenshot_data)
+
             img = Image.open(BytesIO(screenshot_data))
             # Resize to max 1280px wide for live preview
             if img.width > 1280:
