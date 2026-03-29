@@ -11,6 +11,7 @@ export default function Login() {
     const setAuth = useAuthStore((s) => s.setAuth);
     const [isRegister, setIsRegister] = useState(false);
     const [error, setError] = useState('');
+    const [successMessage, setSuccessMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const [tenant, setTenant] = useState<any>(null);
     const [resolving, setResolving] = useState(true);
@@ -84,6 +85,7 @@ export default function Login() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setSuccessMessage('');
         setLoading(true);
 
         try {
@@ -95,6 +97,8 @@ export default function Login() {
                     password: form.password,
                     display_name: form.login_identifier.split('@')[0],
                 });
+                // Show verification message after successful registration
+                setSuccessMessage(t('auth.checkEmailVerification', 'Registration successful! Please check your email to verify your account.'));
             } else {
                 res = await authApi.login({
                     login_identifier: form.login_identifier,
@@ -251,6 +255,23 @@ export default function Login() {
                     {error && (
                         <div className="login-error">
                             <span>⚠</span> {error}
+                        </div>
+                    )}
+
+                    {successMessage && (
+                        <div className="login-success" style={{
+                            background: 'rgba(34, 197, 94, 0.1)',
+                            color: '#16a34a',
+                            padding: '12px 16px',
+                            borderRadius: '8px',
+                            marginBottom: '16px',
+                            fontSize: '14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            border: '1px solid rgba(34, 197, 94, 0.2)',
+                        }}>
+                            <span>✓</span> {successMessage}
                         </div>
                     )}
 

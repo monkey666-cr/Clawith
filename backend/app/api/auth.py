@@ -201,6 +201,72 @@ async def register(
         if existing.scalars().first():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username or email already exists in this tenant")
 
+    # Requirement 2: Check for ANY user with same email that is inactive (across any tenant)
+    # If found, resend verification email instead of creating new user
+    inactive_query = select(User).where(
+        User.email.ilike(data.email),
+        User.is_active == False
+    )
+    inactive_result = await db.execute(inactive_query)
+    inactive_user = inactive_result.scalars().first()
+
+    if inactive_user:
+        # Resend verification email
+        if settings.SYSTEM_SMTP_HOST and settings.SYSTEM_EMAIL_FROM_ADDRESS:
+            try:
+                from app.services.email_verification_service import (
+                    create_email_verification_token,
+                    build_email_verification_url,
+                    send_verification_email,
+                )
+
+                raw_token, expires_at = await create_email_verification_token(inactive_user.id, inactive_user.email)
+                base_url = settings.PUBLIC_BASE_URL or "http://localhost:3000"
+                verify_url = await build_email_verification_url(base_url, raw_token)
+                expiry_minutes = int((expires_at - datetime.now(timezone.utc)).total_seconds() // 60)
+
+                background_tasks.add_task(
+                    send_verification_email,
+                    inactive_user.email,
+                    inactive_user.display_name or inactive_user.username,
+                    verify_url,
+                    expiry_minutes,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered but not verified. A new verification email has been sent. Please check your inbox."
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning(f"Failed to resend verification email for {inactive_user.email}: {exc}")
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to send verification email")
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered but not verified. Please contact administrator."
+            )
+
+    # Requirement 1: Check if user is bound to an OrgMember
+    is_active = True
+    if not is_first_user:
+        # Check if user matches any OrgMember in the resolved tenant
+        is_bound = False
+        if tenant_uuid:
+            from app.models.org import OrgMember
+            member_query = select(OrgMember).where(
+                OrgMember.email.ilike(data.email),
+                OrgMember.tenant_id == tenant_uuid,
+                OrgMember.user_id == None
+            )
+            member_result = await db.execute(member_query)
+            if member_result.scalar_one_or_none():
+                is_bound = True
+        
+        # If not bound, set is_active=False (direct registration)
+        if not is_bound:
+            is_active = False
+
     user = User(
         username=data.username,
         email=data.email,
@@ -208,6 +274,7 @@ async def register(
         display_name=data.display_name or data.username,
         role=role,
         tenant_id=tenant_uuid,
+        is_active=is_active,
         **quota_defaults,
     )
     db.add(user)
@@ -746,6 +813,7 @@ async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_
         raise HTTPException(status_code=400, detail="Email mismatch")
 
     user.email_verified = True
+    user.is_active = True
     await db.flush()
 
     return {"ok": True, "message": "Email verified successfully"}
