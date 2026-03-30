@@ -283,6 +283,13 @@ export default function Chat() {
         };
     }, [id, token]);
 
+    // Auto-focus input when connection is established
+    useEffect(() => {
+        if (connected) {
+            setTimeout(() => textareaRef.current?.focus(), 50);
+        }
+    }, [connected]);
+
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);

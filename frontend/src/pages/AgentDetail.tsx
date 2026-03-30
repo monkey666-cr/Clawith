@@ -1622,12 +1622,13 @@ function AgentDetailInner() {
         }
     }, [chatMessages]);
 
-    // Auto-focus input when switching sessions
+    // Auto-focus input when switching sessions and connection is ready
     useEffect(() => {
-        if (activeSession && activeTab === 'chat') {
-            setTimeout(() => chatInputRef.current?.focus(), 150);
+        if (activeSession && activeTab === 'chat' && wsConnected) {
+            // Tiny timeout to ensure React has enabled the textarea before focusing
+            setTimeout(() => chatInputRef.current?.focus(), 50);
         }
-    }, [activeSession?.id, activeTab]);
+    }, [activeSession?.id, activeTab, wsConnected]);
 
     const sendChatMsg = () => {
         if (!id || !activeSession?.id) return;
