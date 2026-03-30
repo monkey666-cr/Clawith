@@ -4998,6 +4998,21 @@ async def _resolve_bitable_app_token(agent_id: uuid.UUID, parsed_url: dict) -> s
                 return node_info["obj_token"]
     return None
 
+def _check_feishu_err(resp: dict) -> str | None:
+    code = resp.get("code")
+    if code != 0:
+        msg = str(resp.get("msg", ""))
+        if code in [99991663, 10006, 99991661, 99991668] or "permission" in msg.lower() or "403" in msg:
+            return (
+                f"Failed: Permission denied (code: {code}). "
+                "The bot app does not have access to this document/Bitable. "
+                "Please ask the document owner to add the bot app as a collaborator: "
+                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
+                "then add the bot and retry."
+            )
+        return f"Failed: API Error {code} - {msg}"
+    return None
+
 async def _bitable_list_tables(agent_id: uuid.UUID, arguments: dict) -> str:
     """List all tables in a Feishu Bitable app."""
     url = arguments.get("url", "")
@@ -5012,20 +5027,16 @@ async def _bitable_list_tables(agent_id: uuid.UUID, arguments: dict) -> str:
         
     from app.services.feishu_service import feishu_service
     try:
-        tables = await feishu_service.bitable_list_tables(app_id, app_secret, app_token)
+        resp = await feishu_service.bitable_list_tables(app_id, app_secret, app_token)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        tables = resp.get("data", {}).get("items", [])
         if not tables:
             return "OK: No tables found in this Bitable."
-        lines = [f"- {t['name']} (ID: {t['table_id']})" for t in tables]
+        lines = [f"- {t.get('name')} (ID: {t.get('table_id')})" for t in tables]
         return "OK: Tables in this Bitable:\n" + "\n".join(lines)
     except Exception as e:
-        if "403" in str(e) or "Permission Denied" in str(e):
-            return (
-                "Failed: Permission denied (403). "
-                "The bot app does not have access to this Bitable. "
-                "Please ask the document owner to add the bot app as a collaborator: "
-                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
-                "then add the bot and retry."
-            )
         return f"Failed: {str(e)[:300]}"
 
 async def _bitable_list_fields(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -5045,19 +5056,16 @@ async def _bitable_list_fields(agent_id: uuid.UUID, arguments: dict) -> str:
     app_id, app_secret = await _get_feishu_credentials(agent_id)
     from app.services.feishu_service import feishu_service
     try:
-        fields = await feishu_service.bitable_list_fields(app_id, app_secret, app_token, table_id)
+        resp = await feishu_service.bitable_list_fields(app_id, app_secret, app_token, table_id)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        fields = resp.get("data", {}).get("items", [])
         if not fields:
             return "OK: No fields found in this table."
-        lines = [f"- {f['field_name']} (type: {f['type']}, ID: {f['field_id']})" for f in fields]
+        lines = [f"- {f.get('field_name')} (type: {f.get('type')}, ID: {f.get('field_id')})" for f in fields]
         return "OK: Fields in this table:\n" + "\n".join(lines)
     except Exception as e:
-        if "403" in str(e):
-            return (
-                "Failed: Permission denied (403). "
-                "Please ask the document owner to add the bot app as a collaborator: "
-                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
-                "then add the bot and retry."
-            )
         return f"Failed: {str(e)[:300]}"
 
 async def _bitable_query_records(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -5078,21 +5086,28 @@ async def _bitable_query_records(agent_id: uuid.UUID, arguments: dict) -> str:
     from app.services.feishu_service import feishu_service
     try:
         import json
-        records = await feishu_service.bitable_query_records(app_id, app_secret, app_token, table_id, filter_info, max_results)
+        filters_dict = {}
+        if isinstance(filter_info, dict):
+            filters_dict = filter_info
+        elif isinstance(filter_info, str) and filter_info.strip():
+            try:
+                filters_dict = json.loads(filter_info)
+            except:
+                pass 
+                
+        resp = await feishu_service.bitable_query_records(app_id, app_secret, app_token, table_id, filters_dict)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        records = resp.get("data", {}).get("items", [])
         if not records:
             return "OK: No matching records found."
+        
         lines = []
-        for r in records:
-            lines.append(f"Record {r['record_id']}: {json.dumps(r['fields'], ensure_ascii=False)}")
+        for r in records[:max_results]:
+            lines.append(f"Record {r.get('record_id')}: {json.dumps(r.get('fields', {}), ensure_ascii=False)}")
         return "OK: Query results:\n" + "\n".join(lines)
     except Exception as e:
-        if "403" in str(e):
-            return (
-                "Failed: Permission denied (403). "
-                "Please ask the document owner to add the bot app as a collaborator: "
-                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
-                "then add the bot and retry."
-            )
         return f"Failed: {str(e)[:300]}"
 
 async def _bitable_create_record(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -5117,16 +5132,13 @@ async def _bitable_create_record(agent_id: uuid.UUID, arguments: dict) -> str:
     app_id, app_secret = await _get_feishu_credentials(agent_id)
     from app.services.feishu_service import feishu_service
     try:
-        record = await feishu_service.bitable_create_record(app_id, app_secret, app_token, table_id, fields)
-        return f"OK: Record created. Record ID: {record['record_id']}\nFields: {json.dumps(record['fields'], ensure_ascii=False)}"
+        resp = await feishu_service.bitable_create_record(app_id, app_secret, app_token, table_id, fields)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        record = resp.get("data", {}).get("record", {})
+        return f"OK: Record created. Record ID: {record.get('record_id')}\nFields: {json.dumps(record.get('fields', {}), ensure_ascii=False)}"
     except Exception as e:
-        if "403" in str(e):
-            return (
-                "Failed: Permission denied (403). "
-                "Please ask the document owner to add the bot app as a collaborator: "
-                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
-                "then add the bot and retry."
-            )
         return f"Failed: {str(e)[:300]}"
 
 async def _bitable_update_record(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -5152,16 +5164,13 @@ async def _bitable_update_record(agent_id: uuid.UUID, arguments: dict) -> str:
     app_id, app_secret = await _get_feishu_credentials(agent_id)
     from app.services.feishu_service import feishu_service
     try:
-        record = await feishu_service.bitable_update_record(app_id, app_secret, app_token, table_id, record_id, fields)
-        return f"OK: Record updated. Record ID: {record['record_id']}\nFields: {json.dumps(record['fields'], ensure_ascii=False)}"
+        resp = await feishu_service.bitable_update_record(app_id, app_secret, app_token, table_id, record_id, fields)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
+        record = resp.get("data", {}).get("record", {})
+        return f"OK: Record updated. Record ID: {record.get('record_id')}\nFields: {json.dumps(record.get('fields', {}), ensure_ascii=False)}"
     except Exception as e:
-        if "403" in str(e):
-            return (
-                "Failed: Permission denied (403). "
-                "Please ask the document owner to add the bot app as a collaborator: "
-                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
-                "then add the bot and retry."
-            )
         return f"Failed: {str(e)[:300]}"
 
 async def _bitable_delete_record(agent_id: uuid.UUID, arguments: dict) -> str:
@@ -5180,16 +5189,12 @@ async def _bitable_delete_record(agent_id: uuid.UUID, arguments: dict) -> str:
     app_id, app_secret = await _get_feishu_credentials(agent_id)
     from app.services.feishu_service import feishu_service
     try:
-        await feishu_service.bitable_delete_record(app_id, app_secret, app_token, table_id, record_id)
+        resp = await feishu_service.bitable_delete_record(app_id, app_secret, app_token, table_id, record_id)
+        err = _check_feishu_err(resp)
+        if err: return err
+        
         return f"OK: Record {record_id} deleted successfully."
     except Exception as e:
-        if "403" in str(e):
-            return (
-                "Failed: Permission denied (403). "
-                "Please ask the document owner to add the bot app as a collaborator: "
-                "open the Bitable -> click '...' (top-right) -> 'More' -> 'Add document app', "
-                "then add the bot and retry."
-            )
         return f"Failed: {str(e)[:300]}"
 
 
