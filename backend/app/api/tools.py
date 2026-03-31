@@ -15,15 +15,34 @@ from app.models.user import User
 router = APIRouter(prefix="/tools", tags=["tools"])
 
 
-# Sensitive field keys that should be encrypted when stored
+# Sensitive field keys that should be encrypted when stored.
+# This is used as a FALLBACK for tools that don't have config_schema.
+# When config_schema is available, fields with type='password' are used instead.
 SENSITIVE_FIELD_KEYS = {"api_key", "private_key", "auth_code", "password", "secret"}
 
 
-def _encrypt_sensitive_fields(config: dict) -> dict:
+def _get_sensitive_keys(config_schema: dict | None = None) -> set[str]:
+    """Determine which config keys are sensitive.
+
+    If config_schema is provided, extract keys whose field type is 'password'.
+    Always includes the hardcoded SENSITIVE_FIELD_KEYS as a fallback so that
+    tools without config_schema still get encrypted/decrypted correctly.
+    """
+    keys = set(SENSITIVE_FIELD_KEYS)
+    if config_schema:
+        for field in config_schema.get("fields", []):
+            if field.get("type") == "password":
+                keys.add(field.get("key", ""))
+    keys.discard("")  # remove empty string if any
+    return keys
+
+
+def _encrypt_sensitive_fields(config: dict, config_schema: dict | None = None) -> dict:
     """Encrypt sensitive fields in config dict.
 
     Args:
         config: Tool config dict
+        config_schema: Optional config_schema to extract password-type field keys
 
     Returns:
         Config dict with sensitive fields encrypted
@@ -36,8 +55,9 @@ def _encrypt_sensitive_fields(config: dict) -> dict:
 
     settings = get_settings()
     result = dict(config)
+    sensitive_keys = _get_sensitive_keys(config_schema)
 
-    for key in SENSITIVE_FIELD_KEYS:
+    for key in sensitive_keys:
         if key in result and result[key]:
             # Only encrypt if not already encrypted (check if it looks like base64)
             value = result[key]
@@ -51,11 +71,12 @@ def _encrypt_sensitive_fields(config: dict) -> dict:
     return result
 
 
-def _decrypt_sensitive_fields(config: dict) -> dict:
+def _decrypt_sensitive_fields(config: dict, config_schema: dict | None = None) -> dict:
     """Decrypt sensitive fields in config dict.
 
     Args:
         config: Tool config dict
+        config_schema: Optional config_schema to extract password-type field keys
 
     Returns:
         Config dict with sensitive fields decrypted
@@ -68,8 +89,9 @@ def _decrypt_sensitive_fields(config: dict) -> dict:
 
     settings = get_settings()
     result = dict(config)
+    sensitive_keys = _get_sensitive_keys(config_schema)
 
-    for key in SENSITIVE_FIELD_KEYS:
+    for key in sensitive_keys:
         if key in result and result[key]:
             value = result[key]
             if isinstance(value, str) and value:
@@ -154,7 +176,7 @@ async def list_tools(
             "enabled": t.enabled,
             "is_default": t.is_default,
             # Decrypt config for the admin UI so saved values are readable
-            "config": _decrypt_sensitive_fields(t.config or {}),
+            "config": _decrypt_sensitive_fields(t.config or {}, t.config_schema),
             "config_schema": t.config_schema or {},
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }
@@ -210,7 +232,7 @@ async def update_tool(
     update_data = data.model_dump(exclude_unset=True)
     # Encrypt sensitive fields in config
     if "config" in update_data and update_data["config"]:
-        update_data["config"] = _encrypt_sensitive_fields(update_data["config"])
+        update_data["config"] = _encrypt_sensitive_fields(update_data["config"], tool.config_schema)
 
     for field, value in update_data.items():
         setattr(tool, field, value)
@@ -446,13 +468,15 @@ async def get_agent_tool_config(
     )
     at = at_r.scalar_one_or_none()
 
-    # Decrypt both configs
-    raw_global = _decrypt_sensitive_fields(tool.config or {})
-    raw_agent = _decrypt_sensitive_fields(at.config if at else {})
+    # Decrypt both configs using the tool's config_schema for field type awareness
+    schema = tool.config_schema
+    raw_global = _decrypt_sensitive_fields(tool.config or {}, schema)
+    raw_agent = _decrypt_sensitive_fields(at.config if at else {}, schema)
 
     # Mask sensitive fields in global config for display
     masked_global = dict(raw_global)
-    for key in SENSITIVE_FIELD_KEYS:
+    sensitive_keys = _get_sensitive_keys(schema)
+    for key in sensitive_keys:
         val = masked_global.get(key)
         if val and isinstance(val, str) and len(val) > 0:
             suffix = val[-4:] if len(val) > 4 else val
@@ -487,8 +511,10 @@ async def update_agent_tool_config(
                 detail="Only platform admin or organization admin can modify network access settings"
             )
 
-    # Encrypt sensitive fields
-    encrypted_config = _encrypt_sensitive_fields(data.config)
+    # Encrypt sensitive fields using the tool's config_schema for field type awareness
+    tool_r2 = await db.execute(select(Tool).where(Tool.id == tool_id))
+    tool_for_schema = tool_r2.scalar_one_or_none()
+    encrypted_config = _encrypt_sensitive_fields(data.config, tool_for_schema.config_schema if tool_for_schema else None)
 
     at_r = await db.execute(
         select(AgentTool).where(AgentTool.agent_id == agent_id, AgentTool.tool_id == tool_id)
@@ -550,7 +576,7 @@ async def get_agent_tools_with_config(
         enabled = at.enabled if at else t.is_default
 
         # Decrypt configs for the frontend
-        raw_global = _decrypt_sensitive_fields(t.config or {})
+        raw_global = _decrypt_sensitive_fields(t.config or {}, t.config_schema)
 
         # Fallback: resolve api_key from system_settings for tools that store
         # their key there (e.g. Jina). Only if Tool.config doesn't have it.
@@ -571,12 +597,13 @@ async def get_agent_tools_with_config(
             if system_keys_cache[ss_key]:
                 raw_global["api_key"] = system_keys_cache[ss_key]
 
-        raw_agent = _decrypt_sensitive_fields((at.config if at else {}) or {})
+        raw_agent = _decrypt_sensitive_fields((at.config if at else {}) or {}, t.config_schema)
 
         # Mask sensitive fields in global_config so users can see that a key
         # is configured at the company level without exposing the full value.
         masked_global = dict(raw_global)
-        for key in SENSITIVE_FIELD_KEYS:
+        sensitive_keys = _get_sensitive_keys(t.config_schema)
+        for key in sensitive_keys:
             val = masked_global.get(key)
             if val and isinstance(val, str) and len(val) > 0:
                 # Show "****" + last 4 chars as a hint
@@ -670,14 +697,17 @@ async def get_category_config(
         ).order_by(Tool.name)
     )
     raw_global: dict = {}
+    cat_schema: dict | None = None
     for ct in all_cat_tools.scalars():
         if ct.config and ct.config != {}:
-            raw_global = _decrypt_sensitive_fields(ct.config)
+            cat_schema = ct.config_schema
+            raw_global = _decrypt_sensitive_fields(ct.config, cat_schema)
             break
 
     # Mask sensitive fields for UI display
     masked_global = dict(raw_global)
-    for key in SENSITIVE_FIELD_KEYS:
+    sensitive_keys = _get_sensitive_keys(cat_schema)
+    for key in sensitive_keys:
         val = masked_global.get(key)
         if val and isinstance(val, str):
             suffix = val[-4:] if len(val) > 4 else val

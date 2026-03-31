@@ -104,19 +104,31 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
         } catch (e) { console.error(e); }
     };
 
-    // Sensitive field keys that should not be pre-filled from masked global config
-    const SENSITIVE_KEYS = new Set(['api_key', 'private_key', 'auth_code', 'password', 'secret']);
+    // Sensitive field keys that should not be pre-filled from masked global config.
+    // Hardcoded fallback set + dynamic extraction from config_schema password-type fields.
+    const SENSITIVE_KEYS_BASE = new Set(['api_key', 'private_key', 'auth_code', 'password', 'secret']);
+
+    const getSensitiveKeys = (schema: any): Set<string> => {
+        const keys = new Set(SENSITIVE_KEYS_BASE);
+        if (schema?.fields) {
+            for (const field of schema.fields) {
+                if (field.type === 'password') keys.add(field.key);
+            }
+        }
+        return keys;
+    };
 
     const openConfig = (tool: any) => {
         setConfigTool(tool);
         // Build merged config: start with global defaults, overlay agent overrides.
         // For sensitive fields, only use agent_config values (global ones are masked
         // like "****xxxx" and should not pre-fill the input).
+        const sensitiveKeys = getSensitiveKeys(tool.config_schema);
         const globalCfg = tool.global_config || {};
         const agentCfg = tool.agent_config || {};
         const merged: Record<string, any> = {};
         for (const [k, v] of Object.entries(globalCfg)) {
-            if (!SENSITIVE_KEYS.has(k)) merged[k] = v;
+            if (!sensitiveKeys.has(k)) merged[k] = v;
         }
         Object.assign(merged, agentCfg);
         setConfigData(merged);
@@ -140,11 +152,13 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                 const globalCfg = data.global_config || {};
                 const agentCfg = data.agent_config || {};
                 setConfigGlobalData(globalCfg);
-                // Pre-fill only agent-level values; company fields show as locked hints
+                // Pre-fill only agent-level values; company fields show as hints
+                const catSchema = CATEGORY_CONFIG_SCHEMAS[category];
+                const sensitiveKeys = getSensitiveKeys(catSchema);
                 const merged: Record<string, any> = {};
                 for (const [k, v] of Object.entries(globalCfg)) {
                     // Non-sensitive global fields (e.g. os_type) pre-fill; sensitive ones don't
-                    if (!SENSITIVE_KEYS.has(k)) merged[k] = v;
+                    if (!sensitiveKeys.has(k)) merged[k] = v;
                 }
                 Object.assign(merged, agentCfg);
                 setConfigData(merged);
@@ -163,9 +177,11 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                 const raw = configData;
                 // Strip empty sensitive fields so untouched password inputs
                 // don't send empty values that would clear an inherited company key
+                const catSchema = CATEGORY_CONFIG_SCHEMAS[configCategory!];
+                const sensitiveKeys = getSensitiveKeys(catSchema);
                 const payload: Record<string, any> = {};
                 for (const [k, v] of Object.entries(raw)) {
-                    if (SENSITIVE_KEYS.has(k) && (v === '' || v === undefined || v === null)) continue;
+                    if (sensitiveKeys.has(k) && (v === '' || v === undefined || v === null)) continue;
                     payload[k] = v;
                 }
                 await fetch(`/api/tools/agents/${agentId}/category-config/${configCategory}`, {
@@ -178,9 +194,10 @@ function ToolsManager({ agentId, canManage = false }: { agentId: string; canMana
                 const hasSchema = configTool.config_schema?.fields?.length > 0;
                 const raw = hasSchema ? configData : JSON.parse(configJson || '{}');
                 // Strip empty sensitive fields only — agent CAN override company values
+                const sensitiveKeys = getSensitiveKeys(configTool.config_schema);
                 const payload: Record<string, any> = {};
                 for (const [k, v] of Object.entries(raw)) {
-                    if (SENSITIVE_KEYS.has(k) && (v === '' || v === undefined || v === null)) continue;
+                    if (sensitiveKeys.has(k) && (v === '' || v === undefined || v === null)) continue;
                     payload[k] = v;
                 }
                 await fetch(`/api/tools/agents/${agentId}/tool-config/${configTool.id}`, {
