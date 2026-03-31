@@ -55,7 +55,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
                 .join('; ');
         } else if (typeof error.detail === 'object' && error.detail !== null) {
             // Structured error detail (e.g., NeedsVerificationResponse)
-            message = error.detail.message || `HTTP ${res.status}`;
+            message = (error.detail as Record<string, any>).message || `HTTP ${res.status}`;
         } else {
             const d = error.detail;
             if (typeof d === 'string') message = d;
