@@ -659,7 +659,7 @@ function PlatformTab() {
                                                 rows={8}
                                                 value={template.body}
                                                 onChange={e => setEmailTemplates(prev => ({ ...prev, [scenario.key]: { ...prev[scenario.key], body: e.target.value } }))}
-                                                style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.6 }}
+                                                style={{ fontSize: '13px', fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.6, minHeight: '200px', height: 'auto' }}
                                             />
                                         </div>
 

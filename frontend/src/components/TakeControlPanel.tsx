@@ -54,8 +54,15 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
     const imgRef = useRef<HTMLImageElement>(null);
     const pollingRef = useRef<number | null>(null);
     const mountedRef = useRef(true);
+    // Track lock state via ref for cleanup — avoids the React closure bug
+    // where having `locked` in the dependency array causes the effect to
+    // re-run (and re-lock) when handleCancel sets locked=false.
+    const lockedRef = useRef(false);
 
-    // Acquire lock on mount
+    // Keep ref in sync with state
+    useEffect(() => { lockedRef.current = locked; }, [locked]);
+
+    // Acquire lock on mount — runs ONCE only
     useEffect(() => {
         mountedRef.current = true;
         (async () => {
@@ -74,15 +81,16 @@ export default function TakeControlPanel({ agentId, sessionId, onClose }: Props)
 
         return () => {
             mountedRef.current = false;
-            // Release lock on unmount (only if not already unlocking via handleCancel/Complete)
-            if (locked) {
+            // Release lock on unmount — uses ref to avoid stale closure
+            if (lockedRef.current) {
                 controlApi.unlock(agentId, {
                     session_id: sessionId,
                     export_cookies: false,
                 }).catch(() => {});
             }
         };
-    }, [agentId, sessionId, locked]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [agentId, sessionId]);
 
     // Poll screenshots
     useEffect(() => {
