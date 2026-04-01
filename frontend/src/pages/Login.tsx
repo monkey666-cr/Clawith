@@ -10,11 +10,14 @@ export default function Login() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const invitationCode = searchParams.get('code');
+    const invitedEmail = searchParams.get('email') || '';
     const setAuth = useAuthStore((s) => s.setAuth);
+    // Default to register if there's an invitation code — will be overridden after email check
     const [isRegister, setIsRegister] = useState(!!invitationCode);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const [checkingEmail, setCheckingEmail] = useState(!!invitationCode && !!invitedEmail);
     const [tenant, setTenant] = useState<any>(null);
     const [resolving, setResolving] = useState(true);
     const [ssoProviders, setSsoProviders] = useState<any[]>([]);
@@ -23,14 +26,34 @@ export default function Login() {
     const [tenantSelection, setTenantSelection] = useState<any[] | null>(null);
 
     const [form, setForm] = useState({
-        login_identifier: '',
+        login_identifier: invitedEmail,  // Pre-fill invited email if present
         password: '',
         tenant_id: '',
     });
 
-    // Login page always uses dark theme (hero panel is dark)
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', 'dark');
+
+        // If arriving via invitation link with email, check whether the email is already registered
+        // to decide whether to show login or register form.
+        if (invitationCode && invitedEmail) {
+            setCheckingEmail(true);
+            fetch('/api/enterprise/check-email-exists', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: invitedEmail }),
+            })
+                .then(r => r.json())
+                .then((res: { exists: boolean }) => {
+                    // If email already registered → show login form; otherwise show register form
+                    setIsRegister(!res.exists);
+                })
+                .catch(() => {
+                    // On error, fall back to register form (safe default)
+                    setIsRegister(true);
+                })
+                .finally(() => setCheckingEmail(false));
+        }
 
         // Resolve tenant by domain (for SSO detection only, not for login form)
         const domain = window.location.host;
@@ -114,7 +137,13 @@ export default function Login() {
                 const res = await authApi.login({
                     login_identifier: form.login_identifier,
                     password: form.password,
-                    ...(tenant?.id ? { tenant_id: tenant.id } : {}),
+                    // Only pass tenant_id for dedicated SSO subdomain login (not IP-mode SSO).
+                    // IP-mode SSO resolves a tenant for SSO buttons only and must NOT constrain
+                    // password-based login to that tenant (it would reject users from other tenants).
+                    ...(tenant?.id && tenant.sso_domain && !tenant.sso_domain.match(/^https?:\/\/\d{1,3}(\.\d{1,3}){3}(:\d+)?$/)
+                        ? { tenant_id: tenant.id }
+                        : {}
+                    ),
                 });
 
                 // Check if multi-tenant selection is needed
@@ -267,6 +296,16 @@ export default function Login() {
                 </div>
 
                 <div className="login-form-wrapper">
+                    {checkingEmail ? (
+                        // While resolving invitation email, show a minimal loading indicator
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '200px', gap: '16px' }}>
+                            <span className="login-spinner" style={{ width: 24, height: 24 }} />
+                            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
+                                {t('auth.checkingInvitation', 'Checking invitation...')}
+                            </span>
+                        </div>
+                    ) : (
+                    <>
                     <div className="login-form-header">
                         <div className="login-form-logo"><img src="/logo-black.png" className="login-logo-img" alt="" style={{ width: 28, height: 28, marginRight: 8, verticalAlign: 'middle' }} />Clawith</div>
                         <h2 className="login-form-title">
@@ -527,6 +566,8 @@ export default function Login() {
                             {isRegister ? t('auth.goLogin') : t('auth.goRegister')}
                         </a>
                     </div>
+                    </>
+                    )}
                 </div>
             </div>
         </div>

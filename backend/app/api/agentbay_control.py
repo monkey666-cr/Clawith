@@ -209,20 +209,61 @@ async def _cdp_exec(client, script: str, timeout_ms: int = 15000) -> dict:
     return {"success": tc_success, "output": stdout[:500], "stderr": stderr[:200]}
 
 
+async def _eval_cdp_script(client, script_body: str) -> dict:
+    """Evaluate a Node.js Playwright CDP script in the browser container."""
+    import base64
+    try:
+        # Base64 encode the script to avoid shell escaping issues inside the container
+        script_b64 = base64.b64encode(script_body.encode('utf-8')).decode('ascii')
+        
+        # Write base64 to file and decode it to tc_action.js (in current working dir, since /tmp might be restricted)
+        cmd_write = f"echo '{script_b64}' | /usr/bin/base64 -d > tc_action.js"
+        await asyncio.to_thread(client._session.command.exec, cmd_write)
+        
+        # Execute the script
+        result = await asyncio.to_thread(client._session.command.exec, "node tc_action.js")
+        
+        success = getattr(result, 'success', False)
+        output = getattr(result, 'output', '') or getattr(result, 'stdout', '') or ''
+        stderr = getattr(result, 'stderr', '') or ''
+        
+        if not success:
+            logger.error(f"[TakeControl] CDP execution failed. Output: {output}, Stderr: {stderr}")
+            return {"success": False, "output": f"Node error: {stderr[:200]}"}
+            
+        return {"success": True, "output": output}
+    except Exception as e:
+        logger.error(f"[TakeControl] CDP exception: {e}")
+        return {"success": False, "output": str(e)}
+
 async def _perform_click(client, x: int, y: int, button: str = "left"):
-    """Click at (x, y) on the remote session.
-
-    Uses the SDK's Computer API (click_mouse) for both browser and desktop
-    sessions. This is a direct, pixel-precise, sub-second operation — much
-    faster than the LLM-powered browser.operator.act() which takes 2-5s.
-
-    The browser runs inside a virtual desktop where screen coordinates
-    align with the browser viewport, so computer.click_mouse() works
-    correctly for browser sessions too.
-    """
+    """Click at (x, y) on the remote session."""
     image_type = getattr(client, '_image_type', 'unknown')
     logger.info(f"[TakeControl] Click at ({x}, {y}), button={button}, image_type={image_type}")
 
+    if _is_browser_session(client):
+        script = f"""
+const {{ chromium }} = require('/usr/local/lib/node_modules/playwright');
+(async () => {{
+    try {{
+        const browser = await chromium.connectOverCDP('http://localhost:9222');
+        const context = browser.contexts()[0];
+        const page = context.pages()[0];
+        await page.mouse.click({x}, {y}, {{ button: '{button}' }});
+        console.log('CLICK_OK');
+        process.exit(0);
+    }} catch (e) {{
+        console.error('CLICK_FAIL:' + e.message);
+        process.exit(1);
+    }}
+}})();
+"""
+        res = await _eval_cdp_script(client, script)
+        is_ok = getattr(res, "success", False) and getattr(res, "output", "") and "CLICK_OK" in getattr(res, "output", "")
+        # Bubble up the exact Node error if it failed
+        return {"success": res.get("success", False) and "CLICK_OK" in res.get("output", ""), "method": "cdp_click", "output": "Clicked manually" if res.get("success", False) else res.get("output", "Unknown error")}
+
+    # Desktop session - use Computer API
     try:
         result = await asyncio.to_thread(
             client._session.computer.click_mouse, x, y, button
@@ -236,14 +277,32 @@ async def _perform_click(client, x: int, y: int, button: str = "left"):
 
 
 async def _perform_type(client, text: str):
-    """Type text into the remote session.
-
-    Uses the SDK's Computer API (input_text) which types directly at the
-    current cursor/focus position. Much faster than the LLM-powered
-    browser.operator.act() approach.
-    """
+    """Type text into the remote session."""
     image_type = getattr(client, '_image_type', 'unknown')
     logger.info(f"[TakeControl] Type text: '{text[:30]}', image_type={image_type}")
+
+    if _is_browser_session(client):
+        import urllib.parse
+        encoded_text = urllib.parse.quote(text)
+        script = f"""
+const {{ chromium }} = require('/usr/local/lib/node_modules/playwright');
+(async () => {{
+    try {{
+        const browser = await chromium.connectOverCDP('http://localhost:9222');
+        const context = browser.contexts()[0];
+        const page = context.pages()[0];
+        const textToType = decodeURIComponent('{encoded_text}');
+        await page.keyboard.type(textToType);
+        console.log('TYPE_OK');
+        process.exit(0);
+    }} catch (e) {{
+        console.error('TYPE_FAIL:' + e.message);
+        process.exit(1);
+    }}
+}})();
+"""
+        res = await _eval_cdp_script(client, script)
+        return {"success": res.get("success", False) and "TYPE_OK" in res.get("output", ""), "method": "cdp_type", "output": "Text typed" if res.get("success", False) else res.get("output", "Unknown error")}
 
     try:
         result = await asyncio.to_thread(
@@ -258,13 +317,44 @@ async def _perform_type(client, text: str):
 
 
 async def _perform_press_keys(client, keys: list[str]):
-    """Press key combination on the remote session.
-
-    Uses the SDK's Computer API (press_keys) for direct, instant key
-    press — no LLM interpretation overhead.
-    """
+    """Press key combination on the remote session."""
     key_desc = "+".join(keys)
     logger.info(f"[TakeControl] Press keys: {key_desc}")
+
+    if _is_browser_session(client):
+        # Convert keys like 'Enter' to Playwright keyboard layout
+        playwright_keys = []
+        for k in keys:
+            k_lower = k.lower()
+            if k_lower == 'ctrl': playwright_keys.append('Control')
+            elif k_lower == 'alt': playwright_keys.append('Alt')
+            elif k_lower == 'shift': playwright_keys.append('Shift')
+            elif k_lower == 'meta': playwright_keys.append('Meta')
+            elif k_lower == 'enter': playwright_keys.append('Enter')
+            elif k_lower == 'backspace': playwright_keys.append('Backspace')
+            elif k_lower == 'esc': playwright_keys.append('Escape')
+            elif k_lower == 'tab': playwright_keys.append('Tab')
+            else: playwright_keys.append(k.upper() if len(k) == 1 else k)
+            
+        combined = "+".join(playwright_keys)
+        script = f"""
+const {{ chromium }} = require('/usr/local/lib/node_modules/playwright');
+(async () => {{
+    try {{
+        const browser = await chromium.connectOverCDP('http://localhost:9222');
+        const context = browser.contexts()[0];
+        const page = context.pages()[0];
+        await page.keyboard.press('{combined}');
+        console.log('PRESS_OK');
+        process.exit(0);
+    }} catch (e) {{
+        console.error('PRESS_FAIL:' + e.message);
+        process.exit(1);
+    }}
+}})();
+"""
+        res = await _eval_cdp_script(client, script)
+        return {"success": res.get("success", False) and "PRESS_OK" in res.get("output", ""), "method": "cdp_press", "output": f"Pressed {key_desc}" if res.get("success", False) else res.get("output", "Unknown error")}
 
     try:
         result = await asyncio.to_thread(
@@ -506,23 +596,33 @@ async def _export_cookies_from_session(
     Returns the number of cookies exported.
     """
     # Build and execute a Node.js script to export cookies via CDP
+    import base64
     export_script = """
-const { chromium } = require('playwright');
+const { chromium } = require('/usr/local/lib/node_modules/playwright');
 (async () => {
     try {
         const browser = await chromium.connectOverCDP('http://localhost:9222');
         const context = browser.contexts()[0];
         const cookies = await context.cookies();
         console.log('COOKIES_EXPORT:' + JSON.stringify(cookies));
+        process.exit(0);
     } catch (e) {
         console.error('EXPORT_FAIL:' + e.message);
+        process.exit(1);
     }
 })();
 """
-    # Write script to temp file to avoid shell quoting issues
-    await client.command_exec("cat > /tmp/_export_cookies.js << 'SCRIPT_EOF'\n" + export_script + "\nSCRIPT_EOF")
-    result = await client.command_exec("node /tmp/_export_cookies.js", timeout_ms=15000)
+    # Use base64 encoding to write script to current directory (not /tmp, which may lack write perms)
+    script_b64 = base64.b64encode(export_script.encode('utf-8')).decode('ascii')
+    write_result = await client.command_exec(
+        f"echo '{script_b64}' | /usr/bin/base64 -d > tc_export_cookies.js"
+    )
+    logger.info(f"[TakeControl] Cookie export script write: success={write_result.get('success')}, stderr={write_result.get('stderr', '')[:100]}")
+    
+    result = await client.command_exec("node tc_export_cookies.js", timeout_ms=15000)
     stdout = result.get("stdout", "")
+    stderr = result.get("stderr", "")
+    logger.info(f"[TakeControl] Cookie export script exec: success={result.get('success')}, stdout_len={len(stdout)}, stderr={stderr[:200]}")
 
     if "COOKIES_EXPORT:" not in stdout:
         logger.warning(f"[TakeControl] Cookie export script failed: {stdout}")
