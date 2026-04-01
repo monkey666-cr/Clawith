@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores';
 import { tenantApi, authApi } from '../services/api';
@@ -33,7 +33,9 @@ export default function CompanySetup() {
     }, []);
 
     // Allow access from login tenant selection dialog ("Create or Join Organization")
-    const fromTenantSelection = (location.state as any)?.fromTenantSelection;
+    // Use URL param instead of location.state for robustness (survives refresh)
+    const [searchParams] = useSearchParams();
+    const fromTenantSelection = searchParams.get('from') === 'tenant-selection';
 
     // If user already has a company and not from registration/tenant-selection, redirect home
     useEffect(() => {
@@ -103,6 +105,9 @@ export default function CompanySetup() {
     if (!fromRegister && !fromTenantSelection && user?.tenant_id) {
         return null;
     }
+
+    // --- Debug: log guard state ---
+    console.log('[CompanySetup] guards:', { fromRegister, fromTenantSelection, tenant_id: user?.tenant_id });
 
     return (
         <div className="company-setup-page">

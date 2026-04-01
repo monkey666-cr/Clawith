@@ -479,7 +479,7 @@ export default function Login() {
                                                 const tokenRes = res as TokenResponse;
                                                 setAuth(tokenRes.user, tokenRes.access_token);
                                                 setTenantSelection(null);
-                                                navigate('/setup-company', { state: { fromTenantSelection: true } });
+                                                navigate('/setup-company?from=tenant-selection');
                                             } catch (err: any) {
                                                 setError(err.message || 'Failed');
                                                 setTenantSelection(null);
