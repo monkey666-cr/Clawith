@@ -60,13 +60,22 @@ def send_smtp_email(
         if use_ssl:
             context = ssl.create_default_context()
             with smtplib.SMTP_SSL(host, port, context=context, timeout=timeout) as server:
-                server.login(user, password)
+                if user or password:
+                    server.login(user, password)
                 server.sendmail(from_addr, to_addrs, msg_string)
         else:
             with smtplib.SMTP(host, port, timeout=timeout) as server:
                 server.ehlo()
-                if port == 587 or port == 25:  # Common STARTTLS ports
+                
+                # Upgrade to STARTTLS only if the server explicitly advertises support for it.
+                # This prevents crashing on plaintext internal relays that don't support encryption.
+                if "starttls" in server.esmtp_features:
                     server.starttls(context=ssl.create_default_context())
                     server.ehlo()
-                server.login(user, password)
+                
+                # Only attempt login if the server supports AUTH and credentials exist.
+                # Internal network relays often whitelist IPs and do not advertise or accept AUTH.
+                if (user or password) and "auth" in server.esmtp_features:
+                    server.login(user, password)
+                    
                 server.sendmail(from_addr, to_addrs, msg_string)
