@@ -750,6 +750,203 @@ function fetchAuth<T>(url: string, options?: RequestInit): Promise<T> {
     }).then(r => r.json());
 }
 
+// ── Pulse LED keyframe (shared with Chat.tsx, guarded by ID) ──────────────
+const _PULSE_STYLE_ID = 'cw-tool-pulse-style';
+if (typeof document !== 'undefined' && !document.getElementById(_PULSE_STYLE_ID)) {
+    const _s = document.createElement('style');
+    _s.id = _PULSE_STYLE_ID;
+    _s.textContent = `
+        @keyframes cw-pulse-led {
+            0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(99,102,241,0.6); }
+            50%       { opacity: 0.55; transform: scale(1.5); box-shadow: 0 0 0 4px rgba(99,102,241,0); }
+        }
+        .cw-running-led { animation: cw-pulse-led 1.4s ease-in-out infinite; }
+    `;
+    document.head.appendChild(_s);
+}
+
+/**
+ * AgentChatToolChain — renders a group of consecutive tool_call messages
+ * as a single collapsible card with a pulse LED in the header when running.
+ *
+ * Each item in `calls` corresponds to one tool_call ChatMsg with:
+ *   toolName, toolArgs, toolStatus ('running'|'done'), toolResult
+ */
+interface ToolCallItem { name: string; args: any; status: 'running' | 'done'; result?: string; }
+function AgentChatToolChain({ calls, t }: { calls: ToolCallItem[]; t: (k: string) => string }) {
+    const [expanded, setExpanded] = useState(false);
+    const count = calls.length;
+
+    // Last tool that is still running (no result yet)
+    const activeIdx = (() => {
+        for (let i = calls.length - 1; i >= 0; i--) {
+            if (calls[i].status === 'running') return i;
+        }
+        return -1;
+    })();
+    const isRunning = activeIdx >= 0;
+    const activeTool = isRunning ? calls[activeIdx] : null;
+
+    return (
+        <div style={{
+            paddingLeft: '36px',
+            marginBottom: '6px',
+        }}>
+            <div style={{
+                borderRadius: '8px',
+                background: 'rgba(99,102,241,0.06)',
+                border: `1px solid ${isRunning ? 'rgba(99,102,241,0.32)' : 'rgba(99,102,241,0.18)'}`,
+                fontSize: '12px',
+                overflow: 'hidden',
+                transition: 'border-color 0.3s ease',
+            }}>
+                {/* ── Header toggle ── */}
+                <button
+                    onClick={() => setExpanded(v => !v)}
+                    style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        width: '100%', display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '7px 10px',
+                        color: 'var(--accent-text, #818cf8)',
+                    }}
+                >
+                    {/* Wrench icon */}
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <path d="M10.5 10.5L14 14M4.5 2a2.5 2.5 0 00-1.8 4.2l5.1 5.1A2.5 2.5 0 1012 7.2L6.8 2.2A2.5 2.5 0 004.5 2z" />
+                    </svg>
+
+                    {/* Title + live tool indicator */}
+                    <span style={{ flex: 1, textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                        <span style={{ fontWeight: 500, flexShrink: 0 }}>{t('agent.chat.toolCallChain')}</span>
+                        <span style={{ color: 'rgba(99,102,241,0.4)', flexShrink: 0 }}>·</span>
+                        {isRunning && activeTool ? (
+                            <>
+                                {/* Breathing LED dot */}
+                                <span className="cw-running-led" style={{
+                                    display: 'inline-block', width: '6px', height: '6px',
+                                    borderRadius: '50%', background: '#818cf8', flexShrink: 0,
+                                }} />
+                                {/* Active tool name */}
+                                <span style={{
+                                    fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#a5b4fc',
+                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }}>{activeTool.name}</span>
+                            </>
+                        ) : (
+                            /* Static green dot when all done */
+                            <span style={{
+                                display: 'inline-block', width: '6px', height: '6px',
+                                borderRadius: '50%', background: '#22c55e', flexShrink: 0, opacity: 0.85,
+                            }} />
+                        )}
+                    </span>
+
+                    {/* Count badge */}
+                    <span style={{
+                        background: 'rgba(99,102,241,0.18)', color: '#818cf8',
+                        borderRadius: '10px', padding: '1px 7px',
+                        fontSize: '10px', fontWeight: 600, flexShrink: 0,
+                    }}>{count}</span>
+
+                    {/* Expand chevron */}
+                    <span style={{
+                        fontSize: '10px', color: 'var(--text-tertiary)',
+                        transition: 'transform 0.2s', display: 'inline-block',
+                        transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        flexShrink: 0,
+                    }}>▶</span>
+                </button>
+
+                {/* ── Collapsed: tool name pills with per-pill pulse dot ── */}
+                {!expanded && count > 0 && (
+                    <div style={{ padding: '0 10px 7px 10px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {calls.map((tc, i) => {
+                            const running = tc.status === 'running';
+                            return (
+                                <span key={i} style={{
+                                    background: running ? 'rgba(99,102,241,0.14)' : 'rgba(99,102,241,0.08)',
+                                    border: `1px solid ${running ? 'rgba(99,102,241,0.28)' : 'rgba(99,102,241,0.14)'}`,
+                                    borderRadius: '4px', padding: '1px 6px',
+                                    fontSize: '10px', color: running ? '#818cf8' : '#a5b4fc',
+                                    fontFamily: 'var(--font-mono)',
+                                    display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                }}>
+                                    {running && (
+                                        <span className="cw-running-led" style={{
+                                            display: 'inline-block', width: '4px', height: '4px',
+                                            borderRadius: '50%', background: '#818cf8', flexShrink: 0,
+                                        }} />
+                                    )}
+                                    {tc.name}
+                                </span>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* ── Expanded: full detail for each tool ── */}
+                {expanded && (
+                    <div style={{ borderTop: '1px solid rgba(99,102,241,0.15)' }}>
+                        {calls.map((tc, i) => {
+                            const running = tc.status === 'running';
+                            const argsStr = tc.args && Object.keys(tc.args).length > 0
+                                ? JSON.stringify(tc.args, null, 2) : '';
+                            return (
+                                <div key={i} style={{
+                                    padding: '7px 10px',
+                                    borderBottom: i < calls.length - 1 ? '1px solid rgba(99,102,241,0.10)' : 'none',
+                                }}>
+                                    {/* Tool name row with status dot */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: argsStr || tc.result ? '4px' : 0 }}>
+                                        <span
+                                            className={running ? 'cw-running-led' : undefined}
+                                            style={{
+                                                display: 'inline-block', width: '5px', height: '5px',
+                                                borderRadius: '50%',
+                                                background: running ? '#f59e0b' : '#22c55e',
+                                                flexShrink: 0,
+                                            }}
+                                        />
+                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#818cf8', fontWeight: 600 }}>
+                                            {tc.name}
+                                        </span>
+                                        {running && (
+                                            <span style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
+                                                {t('common.loading')}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {/* Args block */}
+                                    {argsStr && (
+                                        <div style={{
+                                            fontFamily: 'var(--font-mono)', fontSize: '10px',
+                                            color: 'var(--text-tertiary)', whiteSpace: 'pre-wrap',
+                                            wordBreak: 'break-all', maxHeight: '80px', overflowY: 'auto',
+                                            background: 'rgba(0,0,0,0.12)', borderRadius: '4px',
+                                            padding: '4px 6px', marginBottom: tc.result ? '4px' : 0,
+                                        }}>{argsStr}</div>
+                                    )}
+                                    {/* Result block */}
+                                    {tc.result && (
+                                        <div style={{
+                                            fontSize: '10px', color: 'var(--text-secondary)',
+                                            whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                            maxHeight: '120px', overflowY: 'auto',
+                                            borderTop: '1px solid rgba(99,102,241,0.10)', paddingTop: '4px',
+                                        }}>
+                                            {tc.result.length > 500 ? tc.result.slice(0, 500) + '…' : tc.result}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function RelationshipEditor({ agentId, readOnly = false }: { agentId: string; readOnly?: boolean }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
@@ -4134,62 +4331,99 @@ function AgentDetailInner() {
                                                     <div style={{ fontSize: '11px', marginTop: '4px', opacity: 0.7 }}>{t('agent.chat.fileSupport')}</div>
                                                 </div>
                                             )}
-                                            {chatMessages.map((msg, i) => {
-                                                if (msg.role === 'tool_call') {
-                                                    return (
-                                                        <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '6px', paddingLeft: '36px', minWidth: 0 }}>
-                                                            <details style={{ flex: 1, minWidth: 0, borderRadius: '8px', background: 'var(--accent-subtle)', border: '1px solid var(--accent-subtle)', fontSize: '12px', overflow: 'hidden' }}>
-                                                                <summary style={{ padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none', listStyle: 'none', overflow: 'hidden' }}>
-                                                                    <span style={{ fontSize: '13px' }}>{msg.toolStatus === 'running' ? '⏳' : '⚡'}</span>
-                                                                    <span style={{ fontWeight: 600, color: 'var(--accent-text)' }}>{msg.toolName}</span>
-                                                                    {msg.toolArgs && Object.keys(msg.toolArgs).length > 0 && <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{`(${Object.entries(msg.toolArgs).map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 30) : JSON.stringify(v)}`).join(', ')})`}</span>}
-                                                                    {msg.toolStatus === 'running' && <span style={{ color: 'var(--text-tertiary)', fontSize: '11px', marginLeft: 'auto' }}>{t('common.loading')}</span>}
-                                                                </summary>
-                                                                {msg.toolResult && <div style={{ padding: '4px 10px 8px' }}><div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '240px', overflow: 'auto', background: 'rgba(0,0,0,0.15)', borderRadius: '4px', padding: '4px 6px' }}>{msg.toolResult}</div></div>}
-                                                            </details>
-                                                        </div>
-                                                    );
+                                            {(() => {
+                                                // Pre-group consecutive tool_call messages into blocks.
+                                                // Non-tool messages are emitted as-is.
+                                                // A user or assistant text message breaks a group.
+                                                const grouped: Array<
+                                                    | { type: 'tool_group'; calls: ToolCallItem[]; key: number }
+                                                    | { type: 'msg'; msg: any; i: number }
+                                                > = [];
+                                                let currentGroup: ToolCallItem[] | null = null;
+                                                let groupStartKey = 0;
+
+                                                for (let i = 0; i < chatMessages.length; i++) {
+                                                    const msg = chatMessages[i];
+                                                    if (msg.role === 'tool_call') {
+                                                        const item: ToolCallItem = {
+                                                            name: msg.toolName || 'tool',
+                                                            args: msg.toolArgs || {},
+                                                            status: msg.toolStatus === 'running' ? 'running' : 'done',
+                                                            result: msg.toolResult || undefined,
+                                                        };
+                                                        if (!currentGroup) {
+                                                            // Start a new group
+                                                            currentGroup = [item];
+                                                            groupStartKey = i;
+                                                        } else {
+                                                            currentGroup.push(item);
+                                                        }
+                                                    } else {
+                                                        // Flush any pending tool group first
+                                                        if (currentGroup) {
+                                                            grouped.push({ type: 'tool_group', calls: currentGroup, key: groupStartKey });
+                                                            currentGroup = null;
+                                                        }
+                                                        grouped.push({ type: 'msg', msg, i });
+                                                    }
                                                 }
-                                                {/* Assistant message with no text content: show inline thinking or skip */ }
-                                                if (msg.role === 'assistant' && !msg.content?.trim()) {
-                                                    if (msg.thinking) {
+                                                // Flush trailing group
+                                                if (currentGroup) {
+                                                    grouped.push({ type: 'tool_group', calls: currentGroup, key: groupStartKey });
+                                                }
+
+                                                return grouped.map((entry) => {
+                                                    if (entry.type === 'tool_group') {
                                                         return (
-                                                            <div key={i} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
-                                                                <details style={{
-                                                                    fontSize: '12px',
-                                                                    background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
-                                                                    border: '1px solid rgba(147, 130, 220, 0.15)',
-                                                                }}>
-                                                                    <summary style={{
-                                                                        padding: '6px 10px', cursor: 'pointer',
-                                                                        color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
-                                                                        userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
-                                                                    }}>Thinking</summary>
-                                                                    <div style={{
-                                                                        padding: '4px 10px 8px',
-                                                                        fontSize: '12px', lineHeight: '1.6',
-                                                                        color: 'var(--text-secondary)',
-                                                                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                                                        maxHeight: '300px', overflow: 'auto',
-                                                                    }}>{msg.thinking}</div>
-                                                                </details>
-                                                            </div>
+                                                            <AgentChatToolChain
+                                                                key={`tg-${entry.key}`}
+                                                                calls={entry.calls}
+                                                                t={t}
+                                                            />
                                                         );
                                                     }
-                                                    return null;
-                                                }
-                                                return (
-                                                    <ChatMessageItem
-                                                        key={i}
-                                                        msg={msg}
-                                                        i={i}
-                                                        isLeft={msg.role === 'assistant'}
-                                                        t={t}
-                                                        senderLabel={msg.role === 'assistant' ? ((agent as any)?.name || 'Agent') : (currentUser?.display_name || undefined)}
-                                                        avatarText={msg.role === 'assistant' ? (((agent as any)?.name || 'Agent')[0]) : (currentUser?.display_name?.[0] || undefined)}
-                                                    />
-                                                );
-                                            })}
+                                                    const { msg, i } = entry;
+                                                    {/* Assistant message with no text content: show inline thinking or skip */}
+                                                    if (msg.role === 'assistant' && !msg.content?.trim()) {
+                                                        if (msg.thinking) {
+                                                            return (
+                                                                <div key={i} style={{ paddingLeft: '36px', marginBottom: '6px' }}>
+                                                                    <details style={{
+                                                                        fontSize: '12px',
+                                                                        background: 'rgba(147, 130, 220, 0.08)', borderRadius: '6px',
+                                                                        border: '1px solid rgba(147, 130, 220, 0.15)',
+                                                                    }}>
+                                                                        <summary style={{
+                                                                            padding: '6px 10px', cursor: 'pointer',
+                                                                            color: 'rgba(147, 130, 220, 0.9)', fontWeight: 500,
+                                                                            userSelect: 'none', display: 'flex', alignItems: 'center', gap: '4px',
+                                                                        }}>Thinking</summary>
+                                                                        <div style={{
+                                                                            padding: '4px 10px 8px',
+                                                                            fontSize: '12px', lineHeight: '1.6',
+                                                                            color: 'var(--text-secondary)',
+                                                                            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                                                            maxHeight: '300px', overflow: 'auto',
+                                                                        }}>{msg.thinking}</div>
+                                                                    </details>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    }
+                                                    return (
+                                                        <ChatMessageItem
+                                                            key={i}
+                                                            msg={msg}
+                                                            i={i}
+                                                            isLeft={msg.role === 'assistant'}
+                                                            t={t}
+                                                            senderLabel={msg.role === 'assistant' ? ((agent as any)?.name || 'Agent') : (currentUser?.display_name || undefined)}
+                                                            avatarText={msg.role === 'assistant' ? (((agent as any)?.name || 'Agent')[0]) : (currentUser?.display_name?.[0] || undefined)}
+                                                        />
+                                                    );
+                                                });
+                                            })()}
                                             {isWaiting && (
                                                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', animation: 'fadeIn .2s ease' }}>
                                                     <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0, color: 'var(--text-secondary)', fontWeight: 600 }}>A</div>
