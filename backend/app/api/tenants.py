@@ -187,14 +187,6 @@ async def self_create_company(
 
     await db.commit()
 
-    try:
-        from app.services.gws_skill_seeder import import_gws_skills
-        imported = await import_gws_skills(str(tenant.id))
-        if imported > 0:
-            print(f"[tenants] Seeded {imported} GWS skills for new tenant", flush=True)
-    except Exception as e:
-        print(f"[tenants] GWS skill seed failed for new tenant: {e}", flush=True)
-
     return SelfCreateResponse(
         tenant=TenantOut.model_validate(tenant),
         access_token=access_token,
@@ -324,15 +316,6 @@ async def join_company(
     await db.flush()
 
     await db.commit()
-
-    if assigned_role == "org_admin":
-        try:
-            from app.services.gws_skill_seeder import import_gws_skills
-            imported = await import_gws_skills(str(tenant.id))
-            if imported > 0:
-                print(f"[tenants] Seeded {imported} GWS skills for new admin", flush=True)
-        except Exception as e:
-            print(f"[tenants] GWS skill seed failed: {e}", flush=True)
 
     return JoinResponse(
         tenant=TenantOut.model_validate(tenant),

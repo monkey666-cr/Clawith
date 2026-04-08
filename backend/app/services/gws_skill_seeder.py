@@ -17,6 +17,20 @@ GWS_REPO_OWNER = "googleworkspace"
 GWS_REPO_NAME = "cli"
 GWS_SKILLS_PATH = "skills"
 
+GWS_SKILL_PREFIXES = ("gws-", "persona-", "recipe-")
+
+
+def is_gws_skill(folder_name: str) -> bool:
+    """Check if a skill folder belongs to the GWS ecosystem.
+
+    The Google Workspace CLI skills repo contains three categories:
+    - gws-*      : core Google Workspace API skills
+    - persona-*  : role-based skill bundles (exec-assistant, etc.)
+    - recipe-*   : pre-built workflow recipes
+    All of them require the 'gws' tool to function.
+    """
+    return any(folder_name.startswith(p) for p in GWS_SKILL_PREFIXES)
+
 
 async def _get_github_token(tenant_id: str | None = None) -> str:
     """Resolve GitHub token from tenant settings DB."""
@@ -84,40 +98,36 @@ async def _fetch_gws_skill_content(
 def _filter_gws_skills(entries: list[dict]) -> list[str]:
     """
     Filter and sort GWS skill directory names.
-    
-    Priority:
+
+    Includes all three categories from the GWS CLI repo:
+    - gws-*      : core Google Workspace API skills
+    - persona-*  : role-based skill bundles
+    - recipe-*   : pre-built workflow recipes
+
+    Priority ordering:
     1. gws-shared (dependency for all other GWS skills)
-    2. gws-* core skills (alphabetical)
-    
-    Excluded: gws-workflow-*, persona-*, recipe-*
+    2. Remaining skills (alphabetical)
     """
     skill_names = []
     has_gws_shared = False
-    
+
     for entry in entries:
         if entry.get("type") != "dir":
             continue
         name = entry.get("name", "")
-        
-        # Check for gws-shared
+
         if name == "gws-shared":
             has_gws_shared = True
             continue
-        
-        # Include gws-* core skills (exclude workflows/personas/recipes)
-        if (name.startswith("gws-") and 
-            not name.startswith("gws-workflow-") and
-            not name.startswith("persona-") and
-            not name.startswith("recipe-")):
+
+        if is_gws_skill(name):
             skill_names.append(name)
-    
-    # Sort alphabetically
+
     skill_names.sort()
-    
-    # Add gws-shared first if it exists
+
     if has_gws_shared:
         skill_names.insert(0, "gws-shared")
-    
+
     return skill_names
 
 
@@ -253,3 +263,91 @@ async def ensure_gws_shared_for_agent(agent_id: str, tenant_id: str | None = Non
     # Check if agent has any gws-* skills
     # If yes, ensure gws-shared is also in the agent's skills list
     pass
+
+
+async def ensure_gws_tool_for_agents_with_skills() -> int:
+    """
+    Startup task: scan all agents and enable the 'gws' tool for any agent
+    that has gws-* skill files in its workspace but lacks the tool assignment.
+
+    Returns:
+        Number of agents that were updated.
+    """
+    from pathlib import Path
+    from app.models.agent import Agent
+    from app.config import get_settings
+
+    settings = get_settings()
+    agents_root = Path(settings.AGENT_DATA_DIR)
+
+    if not agents_root.exists():
+        return 0
+
+    async with async_session() as db:
+        agents_r = await db.execute(select(Agent))
+        agents = agents_r.scalars().all()
+
+    count = 0
+    for agent in agents:
+        skills_dir = agents_root / str(agent.id) / "skills"
+        if not skills_dir.exists():
+            continue
+        has_gws = any(
+            d.is_dir() and is_gws_skill(d.name)
+            for d in skills_dir.iterdir()
+        )
+        if has_gws:
+            enabled = await ensure_gws_tool_enabled_for_agent(agent.id)
+            if enabled:
+                count += 1
+
+    if count > 0:
+        logger.info(f"[GWS Seeder] Auto-enabled 'gws' tool for {count} agent(s) with GWS skills")
+    return count
+
+
+async def ensure_gws_tool_enabled_for_agent(agent_id: uuid.UUID) -> bool:
+    """
+    Ensure the 'gws' tool is enabled for an agent.
+
+    When GWS skills are installed in an agent's workspace, the agent needs
+    the 'gws' tool to be in its function-calling tool list so the LLM can
+    actually execute GWS CLI commands.
+
+    Returns:
+        True if the tool was enabled (created or updated), False if already enabled or tool not found.
+    """
+    from app.models.tool import Tool, AgentTool
+
+    async with async_session() as db:
+        tool_r = await db.execute(select(Tool).where(Tool.name == "gws"))
+        gws_tool = tool_r.scalar_one_or_none()
+        if not gws_tool:
+            logger.warning("[GWS Seeder] 'gws' tool not found in tools table, cannot auto-enable")
+            return False
+
+        at_r = await db.execute(
+            select(AgentTool).where(
+                AgentTool.agent_id == agent_id,
+                AgentTool.tool_id == gws_tool.id,
+            )
+        )
+        existing = at_r.scalar_one_or_none()
+
+        if existing:
+            if existing.enabled:
+                return False
+            existing.enabled = True
+            await db.commit()
+            logger.info(f"[GWS Seeder] Re-enabled 'gws' tool for agent {agent_id}")
+            return True
+
+        db.add(AgentTool(
+            agent_id=agent_id,
+            tool_id=gws_tool.id,
+            enabled=True,
+            source="system",
+        ))
+        await db.commit()
+        logger.info(f"[GWS Seeder] Enabled 'gws' tool for agent {agent_id}")
+        return True

@@ -190,6 +190,12 @@ async def lifespan(app: FastAPI):
         logger.warning(f"[startup] Skills seed failed: {e}")
 
     try:
+        from app.services.gws_skill_seeder import ensure_gws_tool_for_agents_with_skills
+        await ensure_gws_tool_for_agents_with_skills()
+    except Exception as e:
+        logger.warning(f"[startup] GWS tool auto-enable failed: {e}")
+
+    try:
         from app.services.agent_seeder import seed_default_agents
         await seed_default_agents()
     except Exception as e:

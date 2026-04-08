@@ -8497,6 +8497,14 @@ async def _install_skill(agent_id: uuid.UUID, ws: Path, arguments: dict) -> str:
             file_path.write_text(f["content"], encoding="utf-8")
             written.append(f["path"])
 
+        from app.services.gws_skill_seeder import is_gws_skill
+        if is_gws_skill(folder_name):
+            try:
+                from app.services.gws_skill_seeder import ensure_gws_tool_enabled_for_agent
+                await ensure_gws_tool_enabled_for_agent(agent_id)
+            except Exception as e:
+                logger.warning(f"[install_skill] Failed to auto-enable gws tool: {e}")
+
         return f"✅ Skill '{folder_name}' installed successfully ({len(written)} files written to skills/{folder_name}/).\n\nFiles: {', '.join(written)}"
 
     except Exception as e:
