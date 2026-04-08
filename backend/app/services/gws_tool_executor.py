@@ -43,9 +43,11 @@ async def execute_gws_command(
 
     access_token = await _get_valid_access_token(token_record)
 
-    gws_path = _find_gws_cli()
+    gws_path = await _ensure_gws_installed()
     if not gws_path:
-        return {"error": "gws CLI not installed. Run: npm install -g @googleworkspace/cli"}
+        return {
+            "error": "Google Workspace CLI is not available. Please contact your administrator to install @googleworkspace/cli, or wait a moment while it system attempts automatic installation."
+        }
 
     full_command = f"{gws_path} {command}"
 
@@ -120,3 +122,33 @@ def _find_gws_cli() -> str | None:
             return path
 
     return None
+
+
+async def _ensure_gws_installed() -> str | None:
+    gws_path = _find_gws_cli()
+    if gws_path:
+        return gws_path
+
+    logger.info("[GWS] gws CLI not found, attempting on-demand installation...")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "npm", "install", "-g", "@googleworkspace/cli",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+
+        if proc.returncode == 0:
+            logger.info("[GWS] Successfully installed @googleworkspace/cli")
+            return _find_gws_cli()
+        else:
+            stderr_str = stderr.decode('utf-8', errors='replace') if stderr else ''
+            logger.error(f"[GWS] Installation failed with code {proc.returncode}: {stderr_str[:500]}")
+            return None
+    except asyncio.TimeoutError:
+        logger.error("[GWS] Installation timed out after 120s")
+        return None
+    except Exception as e:
+        logger.error(f"[GWS] Failed to install gws CLI: {e}")
+        return None
